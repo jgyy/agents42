@@ -79,6 +79,12 @@ the LLM).
    `agents42.tools.export` as-is.
 3. Point the Streamlit UI's data source and trace rendering at the new domain.
 
+See `docs/2026-08-27-sme-problem-brainstorm.md` for a catalog of candidate SME problem
+patterns (from a pre-kickoff brainstorm, [Miro board](https://miro.com/app/board/uXjVHtp9oPw=/))
+to help classify which shape the real problem fits, and
+`docs/2026-08-27-sme-solutions-and-action-plan.md` for a shortlist of candidate agent
+solutions plus a phased action plan through the hackathon timeline.
+
 ## Status
 
 Design and implementation plan are complete and reviewed; code has not been written yet.

@@ -208,6 +208,20 @@ To point this starter kit at the real SME problem after 5 Sep 2026:
 This is the core reusability bet of building the starter kit now instead
 of waiting for kickoff.
 
+## Candidate Problem Patterns (Pre-Kickoff Brainstorm)
+
+Ahead of the 5 Sep kickoff, the team ran a broader brainstorm across many SME
+verticals (see `docs/2026-08-27-sme-problem-brainstorm.md`) to pressure-test this
+shape against problems outside invoice processing. Three of the four problems
+explored in depth — appointment rescheduling, medication refill/collection, and
+retail stocktaking — map cleanly onto the same intake -> extract -> validate ->
+human-review -> export/act shape used here. One, supporting people with hoarding
+behaviour, does not: it's closer to a stateful decision-support conversation than a
+single-record pipeline, which is exactly the case the Open Risks section below
+already anticipated. Treat that catalog as reference material for quickly
+classifying whichever real problem is assigned at kickoff, not as a design
+commitment.
+
 ## Open Risks / Follow-ups (not blocking this spec)
 
 - Real AWS Bedrock model access/region availability isn't confirmed yet

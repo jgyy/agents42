@@ -1,0 +1,100 @@
+SME SOLUTIONS SHORTLIST & ACTION PLAN (PRE-KICKOFF)
+Date: 2026-08-27
+Status: Reference material - not a design commitment.
+Follows on from the SME problem brainstorm. Fills in the Miro board's "Generate solutions" and "Generate action plan" steps.
+
+--------------------------------------------------------------------------------------------------------------------------------------------
+HOW THIS WAS SCORED
+--------------------------------------------------------------------------------------------------------------------------------------------
+Each shortlisted solution is checked against the hackathon's judging themes: practical & relevant, feasible to pilot (within the ~3-week build phase), secure & responsible, sound technical architecture (fit with the already-built reusable core), effective use of agentic AI, and measurable business impact. Ratings are High / Medium / Low, judged relative to each other, not on an absolute scale.
+
+--------------------------------------------------------------------------------------------------------------------------------------------
+SHORTLISTED SOLUTIONS
+--------------------------------------------------------------------------------------------------------------------------------------------
+
+1. RESCHEDULING AGENT - Appointment Changes & Rescheduling
+
+Reads a WhatsApp/SMS change request, checks the booking system, proposes suitable alternative slots, and executes policy-compliant rebookings directly - escalating to staff (human-review interrupt) for exceptions (different doctor needed, no slot within policy window, VIP/flagged patient).
+
+Maps directly onto the existing core: extract (requested change) -> validate (policy check + slot search) -> human review on exception -> act (update booking) -> confirm.
+
+  Practical & relevant:   High        Universal SME pain, works for any appointment-based business
+  Feasible to pilot:      High        Closest structural match to the invoice pipeline already built
+  Secure & responsible:   High        Human sign-off outside policy is same story as invoice anomalies
+  Sound architecture:     High        Reuses Extractor/Validator/human-review shape as-is
+  Effective agentic AI:   Medium      Mostly rule/policy matching, less open-ended judgment
+  Measurable impact:      Med-High    Staff time saved, slot fill-rate are demoable
+
+2. REFILL COORDINATOR AGENT - Medication Refill & Collection
+
+Checks the patient/prescription record, flags whether doctor approval is required, routes to a mandatory human approval gate for anything medical, checks stock once approved, requests payment, and tracks status through to collection.
+
+Fits the core's shape but with more sequential stages than a single-shot record (a multi-step state machine: approval -> payment -> prep -> collection) rather than one extract/validate pass.
+
+  Practical & relevant:   High        Concrete, frequent, multi-party coordination pain
+  Feasible to pilot:      Medium      More sequential state to track than the invoice example
+  Secure & responsible:   High        Mandatory human sign-off on medical decisions - strongest fit for this judging theme
+  Sound architecture:     Med-High    Fits the core, needs an extended multi-stage graph
+  Effective agentic AI:   High        Several sequential tool-using decisions (approval, stock, payment, notify)
+  Measurable impact:      High        Staff time and reduced wasted customer trips, easy to quantify
+
+3. STOCKTAKE COPILOT AGENT - Retail Sales Promoter Stocktaking
+
+A promoter snaps a shelf photo; the agent identifies and counts products, compares against expected/previous stock and recent sales, flags anomalies, recommends a restock quantity, and - with promoter confirmation - logs the stocktake, notifies the brand/distributor, and proactively suggests the next visit date.
+
+Best showcase of the core's reusability claim - extraction here is vision-based instead of text-based, rest of the pipeline unchanged.
+
+  Practical & relevant:   High        Concrete, visual, easy to demo live
+  Feasible to pilot:      Medium      Needs a multimodal extraction swap; vision accuracy on shelf photos is an untested risk
+  Secure & responsible:   Medium      Lower stakes than medical, still benefits from human confirm before restock order
+  Sound architecture:     High        Cleanest proof of the core's reusability claim
+  Effective agentic AI:   High        Multi-source reasoning: image + historical stock + sales velocity
+  Measurable impact:      High        Units restocked, stores prioritized, sales uplift all quantifiable
+
+4. DECISION SUPPORT AGENT (top pick) & PERSONAL POSSESSIONS AGENT (second pick) - Supporting People With Hoarding Behaviour
+
+The board itself starred these two above the other two hoarding-support ideas (Clutter Progress Agent, Digital Memory Agent).
+
+  - Decision Support Agent: instead of instructing "keep/discard," asks guided questions per item/photo to help the person reach their own decision, and records the outcome.
+  - Personal Possessions Agent: identifies and logs possessions from photos, and answers queries like "do I already own a rice cooker?"
+
+Neither fits the extraction-validation-export shape - both are stateful, multi-session conversation/memory agents rather than a validator judging one record per case.
+
+  Practical & relevant:   High        Emotionally resonant, socially differentiated from admin automation
+  Feasible to pilot:      Low         Needs a new session/memory architecture the core doesn't have yet
+  Secure & responsible:   Medium      Must stay clearly "support," not clinical/therapeutic
+  Sound architecture:     Low-Medium  Biggest structural departure of the four
+  Effective agentic AI:   High        Genuine judgment and guided dialogue, not rule-matching
+  Measurable impact:      Low-Medium  Social impact harder to quantify than SME revenue/time metrics
+
+RECOMMENDATION (closest-fallback ranking):
+  1. Medication Refill & Collection - best mix of security/responsible story and measurable impact, for a moderate rise in complexity.
+  2. Appointment Rescheduling - simplest, most direct reuse of the existing pipeline; safest "if it looks like this, we're basically done" case.
+  3. Retail Stocktaking - highest payoff as a reusability showcase, but carries real vision-accuracy risk worth an early spike.
+  4. Hoarding Support (Decision Support Agent) - valuable and differentiated, but the biggest architecture departure; only a real build target if the assigned problem is explicitly conversational/decision-support, not record-per-case.
+
+--------------------------------------------------------------------------------------------------------------------------------------------
+ACTION PLAN
+--------------------------------------------------------------------------------------------------------------------------------------------
+
+PHASE 0 - Now through kickoff (27 Aug - 4 Sep 2026)
+  - Keep the invoice-processing example as the working proof-of-pattern; don't start building any of the four shortlisted problems for real - none of them may be the one actually assigned.
+  - Circulate this shortlist and the brainstorm catalog to the whole team so everyone can practice the "which pattern does this map to" classification before it matters.
+  - Chase the open Miro board question - "Do you know an SME we can talk to?" - for at least one contact in Vet/Dental/Clinic (rescheduling/refill) or retail (stocktaking), since two of the four shortlisted solutions cluster in that vertical.
+  - Confirm AWS Bedrock access/credits status ahead of kickoff so day one of the build phase isn't blocked switching off the LLM_PROVIDER=anthropic fallback.
+
+PHASE 1 - Kickoff day (Sat 5 Sep 2026)
+  - Run the "What To Listen For At Kickoff" checklist against the real assigned problem within the first hour.
+  - Decide whether it maps to the extraction-validation-export shape (like three of the four shortlisted patterns) or the conversational/decision-support shape (like hoarding support).
+  - Sketch the new examples/<problem>/ schema/agents/graph/prompts shape the same afternoon, following the README's "Adapting this to the real SME problem" steps.
+
+PHASE 2 - Build phase (Mon 7 - Fri 25 Sep 2026, ~3 weeks)
+  - Week 1 (7-11 Sep): Stand up the new example's schema, prompts, and agent nodes on top of the untouched core (LLM provider, graph helpers, export tool). Get one clean end-to-end case working.
+  - Week 2 (14-18 Sep): Build out domain-specific decision logic and human-review triggers; add realistic sample data covering clean and anomalous cases; wire the Streamlit UI's trace view to the new domain.
+  - Week 3 (21-25 Sep): Harden edge cases, expand tests (deterministic rules unit-tested, LLM output mocked), shape the demo narrative around the six judging themes.
+
+PHASE 3 - Submission (by Mon 28 Sep 2026)
+  - Final green pytest run; update README.md for the real problem in place of invoice-specific instructions; write the submission narrative referencing this brainstorm and shortlist as evidence of upfront reusability thinking.
+
+PHASE 4 - Finale Demo Day (Sat 10 Oct 2026)
+  - Rehearse the live demo (CLI + Streamlit); prepare for architecture questions using the design spec and this shortlist as backing material; confirm the Anthropic fallback still works as a live-demo safety net if Bedrock has issues on the day.
