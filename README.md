@@ -26,9 +26,9 @@ flowchart LR
 - `data/samples/` — hand-crafted sample invoices (plain text, standing in for OCR'd output),
   including deliberately anomalous ones (bad math, missing vendor, duplicate invoice number).
 
-See `docs/superpowers/specs/2026-08-15-agents42-starter-kit-design.md` for the full design
-rationale and `docs/superpowers/plans/2026-08-15-agents42-starter-kit-plan.md` for the
-task-by-task implementation plan (not yet executed).
+See the [Agents42 design doc](https://docs.google.com/document/d/14TV_0VPAnsPvho1htiWddkqrp0oMzZaS1PW723lo7xw)
+for the full design rationale and task-by-task implementation plan (not yet executed).
+A markdown copy of the hackathon proposal lives at `docs/2026-09-05-agents42-proposal.md`.
 
 ## Setup
 
@@ -80,7 +80,7 @@ the LLM).
 3. Point the Streamlit UI's data source and trace rendering at the new domain.
 
 See `docs/2026-08-27-sme-problem-brainstorm.md` for a catalog of candidate SME problem
-patterns (from a pre-kickoff brainstorm, [Miro board](https://miro.com/app/board/uXjVHtp9oPw=/))
+patterns (from a pre-kickoff brainstorm)
 to help classify which shape the real problem fits, and
 `docs/2026-08-27-sme-solutions-and-action-plan.md` for a shortlist of candidate agent
 solutions plus a phased action plan through the hackathon timeline.
