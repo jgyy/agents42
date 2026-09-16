@@ -5,9 +5,6 @@ Hackathon 2026**. Customers message the business on WhatsApp; the agent identifi
 real availability on the business's Google Calendar, and books the appointment - without
 inventing prices, hours, or availability itself.
 
-> The team's earlier "Administrative Automation" (invoice processing) direction has been
-> superseded by the assigned SME problem statement, **Managing WhatsApp Sales Enquiries**. See
-> `docs/2026-09-05-agents42-proposal.md` for the official proposal this build is based on.
 
 ## First vertical slice
 
@@ -51,21 +48,26 @@ OpenClaw itself runs natively on the host (not in Docker) - see DEVELOPMENT.md f
 ```bash
 cp .env.example .env    # edit as needed
 docker compose up -d --build
-curl http://localhost:8000/health
+curl http://localhost:8090/health
 ```
 
 ### Backend (local, no Docker)
 
+The venv lives under `app/`, but run commands from the **repo root** with `app/src` on
+`PYTHONPATH` - `businesses/`, `migrations/`, and `credentials/` are all resolved relative to the
+process's working directory, and they live at the repo root, not under `app/`.
+
 ```bash
-cd app
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e '.[dev]'
+python3 -m venv app/.venv && source app/.venv/bin/activate
+pip install -e './app[dev]'
+export PYTHONPATH=app/src
 ```
 
 ### Google Calendar
 
 One-time local OAuth flow to generate a refresh token - see DEVELOPMENT.md "Google Calendar
-setup" for the full walkthrough (Cloud Console project, OAuth client, calendar sharing):
+setup" for the full walkthrough (Cloud Console project, OAuth client, calendar sharing). Run from
+the repo root, with the venv above active:
 
 ```bash
 python -m agents42.integrations.google_calendar_auth

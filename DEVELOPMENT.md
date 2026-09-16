@@ -70,15 +70,17 @@ agents42/
 ```bash
 cp .env.example .env
 docker compose up -d --build
-curl http://localhost:8000/health
+curl http://localhost:8090/health
 ```
 
-Or without Docker:
+Or without Docker. Run from the **repo root**, not `app/` - `businesses/`, `migrations/`, and
+`credentials/` are all resolved relative to the process's working directory (see
+`config.py:Settings`), and they live at the repo root:
 
 ```bash
-cd app
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e '.[dev]'
+python3 -m venv app/.venv && source app/.venv/bin/activate
+pip install -e './app[dev]'
+export PYTHONPATH=app/src
 export DATABASE_URL=postgresql+psycopg://agents42:agents42@localhost:5432/agents42
 uvicorn agents42.api:app --reload
 ```
@@ -90,11 +92,13 @@ uvicorn agents42.api:app --reload
    `credentials/calendar_credentials.json` (gitignored - never commit this).
 3. Share the target Google Calendar with the Google account you'll authorize in step 4, or use
    that account's own calendar and set `calendar_id: primary` in the business profile.
-4. Run once, locally, with a browser available:
+4. Run once, locally, with a browser available, from the repo root (with the venv above active):
    ```bash
-   cd app && python -m agents42.integrations.google_calendar_auth
+   python -m agents42.integrations.google_calendar_auth
    ```
-   This opens a browser consent flow and writes `credentials/calendar_token.json`.
+   This opens a browser consent flow and writes `credentials/calendar_token.json`. It's an
+   interactive step - don't run it from a headless shell/CI, it'll just hang waiting for the
+   consent redirect.
 5. Mount both files read-only into the container (already wired in `docker-compose.yml` via
    `./credentials:/app/credentials:ro`) - on AWS, copy the token file over once rather than
    re-running the browser flow on a headless box.
@@ -107,7 +111,7 @@ token itself is revoked.
 Install OpenClaw on the host per the organiser's starter kit instructions, then point it at:
 
 ```bash
-export AGENTS42_API_BASE_URL=http://localhost:8000
+export AGENTS42_API_BASE_URL=http://localhost:8090
 openclaw <skill-flag> openclaw/workspace/skills/front-desk/
 ```
 
