@@ -15,6 +15,8 @@ not for every dev request.
 | Local development | cheap tool-capable model | real test Google Calendar, real Postgres | daily development |
 | Final integration | hackathon AWS gateway | real Calendar + WhatsApp | demo and deployment testing |
 
+See OPERATION.md "Switching LLM providers/models" for the actual commands to move between rows.
+
 Business logic never needs an LLM: `find_available_slots`, `is_valid_slot`,
 `resolve_or_create_customer`, `normalize_phone` are plain Python, unit tested directly. The LLM's
 job is understanding the customer's request, asking for missing information, and choosing which

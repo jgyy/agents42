@@ -36,6 +36,31 @@ openclaw status                # gateway, channels (WhatsApp), sessions, model p
 openclaw channels list         # WhatsApp linked/not
 ```
 
+## Switching LLM providers/models
+
+Per DEVELOPMENT.md's three-mode table: cheap model for daily dev, the hackathon gateway for
+early compatibility checks and final integration. These commands do the actual switching
+(verified live against this setup):
+
+```bash
+openclaw models list                              # what's configured, which is default
+openclaw models set openrouter/anthropic/claude-sonnet-4.6   # change the persistent default
+```
+
+`models set` writes `~/.openclaw/openclaw.json` (with a `.bak` backup made automatically) - this
+affects every future conversation, not just your next message. For a one-off test without
+changing the default:
+
+```bash
+openclaw agent --model openrouter/anthropic/claude-sonnet-4.6 -m "test message"
+```
+
+**Adding a new provider you haven't configured yet** (e.g. the hackathon's AWS gateway, or your
+own key for a different model) isn't a `models set` - that only switches between providers
+already configured. Add it via `openclaw onboard` again (same command as initial setup, safe to
+re-run) or `openclaw config set` for a specific non-interactive value - see SETUP.md step 4 and
+`openclaw config set --help`.
+
 ## Testing without messaging real WhatsApp
 
 ```bash
