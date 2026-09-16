@@ -1,0 +1,38 @@
+# Demo business profile for the first vertical slice.
+# Add a new business by creating another <business_id>.yaml here - do not
+# edit the agent's generic rules (openclaw/workspace/skills/front-desk/SKILL.md)
+# or the scheduling code to support a new business.
+id: demo-groomer
+name: Happy Paws Grooming
+timezone: Asia/Singapore
+
+# The Google Calendar this business's availability is checked against and
+# bookings are written to. Create/share this calendar with the service
+# account or OAuth user configured via GOOGLE_CALENDAR_* env vars.
+calendar_id: primary
+
+address: "123 Grooming Lane, Singapore"
+
+services:
+  full_grooming:
+    duration_minutes: 120
+    turnaround_minutes: 60
+
+opening_hours:
+  monday: { open: "09:00", close: "18:00" }
+  tuesday: { open: "09:00", close: "18:00" }
+  wednesday: { open: "09:00", close: "18:00" }
+  thursday: { open: "09:00", close: "18:00" }
+  friday: { open: "09:00", close: "18:00" }
+  saturday: { open: "09:00", close: "15:00" }
+  # sunday: closed (omitted)
+
+required_customer_fields:
+  - name
+  - phone
+
+optional_customer_fields:
+  - address
+  - notes
+
+slot_interval_minutes: 60

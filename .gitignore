@@ -1,55 +1,29 @@
-# Prerequisites
-*.d
+.env
+.env.*
+!.env.example
 
-# Object files
-*.o
-*.ko
-*.obj
-*.elf
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
-# Linker output
-*.ilk
-*.map
-*.exp
+# Google Calendar credentials/tokens - never commit real credentials
+calendar_credentials.json
+calendar_token.json
+google_credentials.json
+google_token.json
+app/credentials/
 
-# Precompiled Headers
-*.gch
-*.pch
+# OpenClaw / WhatsApp session state
+openclaw-data/
+openclaw/workspace/.state/
+openclaw/workspace/**/session/
 
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
+# Database volumes
+postgres-data/
 
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
-
-# Executables
-*.exe
-*.out
-*.app
-*.i*86
-*.x86_64
-*.hex
-
-# Debug files
-*.dSYM/
-*.su
-*.idb
-*.pdb
-
-# Kernel Module Compile Results
-*.mod*
-*.cmd
-.tmp_versions/
-modules.order
-Module.symvers
-Mkfile.old
-dkms.conf
-
-# debug information files
-*.dwo
+*.log
+.DS_Store

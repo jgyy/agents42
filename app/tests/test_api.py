@@ -1,0 +1,280 @@
+import datetime as dt_module
+from datetime import date, time, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+import agents42.config as config_module
+from agents42.api import app, get_calendar_client
+from agents42.db import get_session
+from agents42.integrations.google_calendar import CalendarError
+from agents42.models import Base, Booking
+from agents42.scheduling.service import BusyPeriod
+
+REPO_BUSINESSES_DIR = Path(__file__).resolve().parents[2] / "businesses"
+
+
+def next_weekday(base: date, weekday: int) -> date:
+    """weekday: Monday=0 ... Sunday=6. Always returns a date after `base`."""
+    days_ahead = (weekday - base.weekday()) % 7 or 7
+    return base + timedelta(days=days_ahead)
+
+
+FRIDAY = next_weekday(date.today(), 4)  # groomer.yaml has Friday hours
+
+
+class FakeCalendarClient:
+    """Stands in for GoogleCalendarClient in tests - CalendarClient is a
+    Protocol precisely so this substitution is possible without touching a
+    real Google account.
+    """
+
+    def __init__(self):
+        self.busy: list[BusyPeriod] = []
+        self.created_events: list[str] = []
+        self.deleted_events: list[str] = []
+        self.fail_get_busy = False
+        self.fail_create = False
+
+    def get_busy_periods(self, calendar_id, start, end):
+        if self.fail_get_busy:
+            raise CalendarError("simulated calendar outage")
+        return self.busy
+
+    def create_event(self, calendar_id, summary, start, end, description=""):
+        if self.fail_create:
+            raise CalendarError("simulated calendar outage")
+        event_id = f"evt-{len(self.created_events) + 1}"
+        self.created_events.append(event_id)
+        return event_id
+
+    def delete_event(self, calendar_id, event_id):
+        self.deleted_events.append(event_id)
+
+
+class FailingCommitSession:
+    """Wraps a real Session but makes commit() raise, to exercise the
+    partial-failure path (Calendar event created, DB write fails).
+    """
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def commit(self):
+        raise RuntimeError("simulated DB failure")
+
+
+@pytest.fixture
+def test_engine():
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    return engine
+
+
+@pytest.fixture
+def fake_calendar():
+    return FakeCalendarClient()
+
+
+@pytest.fixture
+def client(test_engine, fake_calendar, monkeypatch):
+    monkeypatch.setattr(config_module.settings, "businesses_dir", REPO_BUSINESSES_DIR)
+
+    TestSession = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
+
+    def override_get_session():
+        session = TestSession()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_calendar_client] = lambda: fake_calendar
+    # No `with` block: skips the startup lifespan (which runs Postgres
+    # migrations) - tests only ever touch the in-memory sqlite engine above.
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+def resolve_customer(client, phone="91234567", name="Sarah Tan"):
+    response = client.post("/customers/resolve", json={"phone": phone, "name": name})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_unknown_phone_creates_customer(client):
+    body = resolve_customer(client)
+    assert body["created"] is True
+    assert body["name"] == "Sarah Tan"
+
+
+def test_returning_phone_is_recognised_without_duplicate(client):
+    first = resolve_customer(client)
+    second = resolve_customer(client, name="Someone Else")
+    assert second["created"] is False
+    assert second["id"] == first["id"]
+    assert second["name"] == "Sarah Tan"
+
+
+def test_availability_search_excludes_busy_period(client, fake_calendar):
+    tz = ZoneInfo("Asia/Singapore")
+    fake_calendar.busy = [
+        BusyPeriod(
+            start=dt_module.datetime.combine(FRIDAY, time(10, 0), tzinfo=tz),
+            end=dt_module.datetime.combine(FRIDAY, time(12, 0), tzinfo=tz),
+        )
+    ]
+    response = client.post(
+        "/availability/search",
+        json={"business_id": "demo-groomer", "service": "full_grooming", "date": FRIDAY.isoformat()},
+    )
+    assert response.status_code == 200, response.text
+    slots = response.json()["slots"]
+    assert len(slots) > 0
+    assert all("10:00" not in s["start"] and "11:00" not in s["start"] for s in slots)
+
+
+def test_availability_search_returns_empty_when_closed(client):
+    sunday = next_weekday(FRIDAY, 6)
+    response = client.post(
+        "/availability/search",
+        json={"business_id": "demo-groomer", "service": "full_grooming", "date": sunday.isoformat()},
+    )
+    assert response.status_code == 200
+    assert response.json()["slots"] == []
+
+
+def test_availability_search_502_when_calendar_down(client, fake_calendar):
+    fake_calendar.fail_get_busy = True
+    response = client.post(
+        "/availability/search",
+        json={"business_id": "demo-groomer", "service": "full_grooming", "date": FRIDAY.isoformat()},
+    )
+    assert response.status_code == 502
+
+
+def test_full_booking_flow_creates_calendar_event_and_db_row(client, fake_calendar):
+    customer = resolve_customer(client)
+
+    search = client.post(
+        "/availability/search",
+        json={"business_id": "demo-groomer", "service": "full_grooming", "date": FRIDAY.isoformat()},
+    )
+    first_slot = search.json()["slots"][0]
+
+    booking_response = client.post(
+        "/bookings",
+        json={
+            "business_id": "demo-groomer",
+            "customer_id": customer["id"],
+            "service": "full_grooming",
+            "start": first_slot["start"],
+        },
+    )
+    assert booking_response.status_code == 201, booking_response.text
+    body = booking_response.json()
+    assert body["status"] == "confirmed"
+    assert body["google_event_id"] == "evt-1"
+    assert fake_calendar.created_events == ["evt-1"]
+
+    fetched = client.get(f"/bookings/{body['id']}")
+    assert fetched.status_code == 200
+    assert fetched.json()["id"] == body["id"]
+
+
+def test_booking_rechecks_availability_and_rejects_now_busy_slot(client, fake_calendar):
+    customer = resolve_customer(client)
+    search = client.post(
+        "/availability/search",
+        json={"business_id": "demo-groomer", "service": "full_grooming", "date": FRIDAY.isoformat()},
+    )
+    first_slot = search.json()["slots"][0]
+
+    # Simulate another booking landing on this slot between the search and
+    # the customer's selection - the recheck-before-booking guard must catch it.
+    start_dt = dt_module.datetime.fromisoformat(first_slot["start"])
+    end_dt = dt_module.datetime.fromisoformat(first_slot["end"])
+    fake_calendar.busy = [BusyPeriod(start=start_dt, end=end_dt)]
+
+    response = client.post(
+        "/bookings",
+        json={
+            "business_id": "demo-groomer",
+            "customer_id": customer["id"],
+            "service": "full_grooming",
+            "start": first_slot["start"],
+        },
+    )
+    assert response.status_code == 409
+    assert fake_calendar.created_events == []
+
+
+def test_booking_not_confirmed_when_calendar_create_fails(client, fake_calendar):
+    customer = resolve_customer(client)
+    search = client.post(
+        "/availability/search",
+        json={"business_id": "demo-groomer", "service": "full_grooming", "date": FRIDAY.isoformat()},
+    )
+    first_slot = search.json()["slots"][0]
+    fake_calendar.fail_create = True
+
+    response = client.post(
+        "/bookings",
+        json={
+            "business_id": "demo-groomer",
+            "customer_id": customer["id"],
+            "service": "full_grooming",
+            "start": first_slot["start"],
+        },
+    )
+    assert response.status_code == 502
+
+
+def test_orphaned_calendar_event_is_deleted_when_db_write_fails(client, fake_calendar, test_engine, monkeypatch):
+    customer = resolve_customer(client)
+    search = client.post(
+        "/availability/search",
+        json={"business_id": "demo-groomer", "service": "full_grooming", "date": FRIDAY.isoformat()},
+    )
+    first_slot = search.json()["slots"][0]
+
+    TestSession = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
+
+    def failing_get_session():
+        session = FailingCommitSession(TestSession())
+        try:
+            yield session
+        finally:
+            session._inner.close()
+
+    app.dependency_overrides[get_session] = failing_get_session
+
+    response = client.post(
+        "/bookings",
+        json={
+            "business_id": "demo-groomer",
+            "customer_id": customer["id"],
+            "service": "full_grooming",
+            "start": first_slot["start"],
+        },
+    )
+
+    assert response.status_code == 500
+    assert fake_calendar.created_events == ["evt-1"]
+    assert fake_calendar.deleted_events == ["evt-1"]  # rolled back, no phantom booking
+
+    with TestSession() as verify_session:
+        assert verify_session.query(Booking).count() == 0

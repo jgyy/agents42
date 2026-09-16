@@ -1,90 +1,104 @@
 # agents42
 
-A reusable agentic AI starter kit, built for the **NUS-ISS Show Me Your Agents Hackathon**
-(Public Category, powered by AWS). The team's real SME problem statement is assigned at the
-Hackathon Kickoff on Saturday, 5 September 2026; until then, this repo proves out the
-architecture against a representative "Administrative Automation" example: an invoice/receipt
-processing agent.
+An AI front-desk agent for appointment-based SMEs, built for the **NUS-ISS Show Me Your Agents
+Hackathon 2026**. Customers message the business on WhatsApp; the agent identifies them, checks
+real availability on the business's Google Calendar, and books the appointment - without
+inventing prices, hours, or availability itself.
 
-```mermaid
-flowchart LR
-    A[Ingest sample invoice] --> B[Extractor agent]
-    B --> C[Validator agent]
-    C -->|clean| E[Export CSV / JSON]
-    C -->|flagged or low confidence| D[Human review]
-    D --> E
+> The team's earlier "Administrative Automation" (invoice processing) direction has been
+> superseded by the assigned SME problem statement, **Managing WhatsApp Sales Enquiries**. See
+> `docs/2026-09-05-agents42-proposal.md` for the official proposal this build is based on.
+
+## First vertical slice
+
+```text
+WhatsApp customer
+    -> OpenClaw (front-desk skill)
+        -> resolve_customer.py    -> POST /customers/resolve
+        -> search_availability.py -> POST /availability/search  -> Google Calendar free/busy
+        -> create_booking.py      -> POST /bookings              -> Google Calendar event + DB row
 ```
+
+The agent never computes availability or confirms a booking itself - it only relays what the
+deterministic FastAPI backend returns. See [AGENTS42.md](AGENTS42.md) for the full agent
+architecture and guardrails, and [DEVELOPMENT.md](DEVELOPMENT.md) for how to run and extend this.
 
 ## Architecture
 
-- `src/agents42/` — reusable, domain-agnostic core: LLM provider abstraction (AWS Bedrock,
-  with an Anthropic-API fallback for local dev before hackathon AWS credits are issued),
-  generic LangGraph node helpers (logging, retry, human-review interrupt), and a generic
-  CSV/JSON export tool.
-- `examples/invoice_processing/` — a concrete example built on that core: a multi-agent
-  Supervisor -> Extractor -> Validator -> (optional human review) -> Export pipeline.
-- `data/samples/` — hand-crafted sample invoices (plain text, standing in for OCR'd output),
-  including deliberately anomalous ones (bad math, missing vendor, duplicate invoice number).
+- `app/src/agents42/` - the deterministic backend (FastAPI + PostgreSQL): customer lookup,
+  business-rule-driven scheduling, and Google Calendar integration. No LLM involvement.
+- `businesses/*.yaml` - one file per business (services, hours, timezone, calendar). Adding a
+  new business is "add a YAML file", not "edit the core".
+- `openclaw/workspace/skills/front-desk/` - the OpenClaw skill: `SKILL.md` (generic agent rules,
+  business-agnostic) plus thin CLI scripts that call the FastAPI backend and print JSON, matching
+  how OpenClaw actually invokes skills (`exec` a script, parse its JSON output).
+- `migrations/` - plain SQL migrations, applied automatically on backend startup.
 
-See the [Agents42 design doc](https://docs.google.com/document/d/14TV_0VPAnsPvho1htiWddkqrp0oMzZaS1PW723lo7xw)
-for the full design rationale and task-by-task implementation plan (not yet executed).
-A markdown copy of the hackathon proposal lives at `docs/2026-09-05-agents42-proposal.md`.
+```mermaid
+flowchart LR
+    C[WhatsApp customer] --> O[OpenClaw + front-desk skill]
+    O -->|exec scripts| A[FastAPI backend]
+    A --> D[(PostgreSQL: customers, bookings)]
+    A --> G[Google Calendar]
+```
+
+OpenClaw itself runs natively on the host (not in Docker) - see DEVELOPMENT.md for why.
 
 ## Setup
 
+### Backend (Docker)
+
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'
-cp .env.example .env
+cp .env.example .env    # edit as needed
+docker compose up -d --build
+curl http://localhost:8000/health
 ```
 
-Edit `.env` and set either:
-- `LLM_PROVIDER=bedrock` with valid AWS credentials configured (via `aws configure` or
-  environment variables) and `AWS_REGION` set to a region with Bedrock Claude access, or
-- `LLM_PROVIDER=anthropic` with `ANTHROPIC_API_KEY` set, for local development before AWS
-  hackathon credits are available.
+### Backend (local, no Docker)
+
+```bash
+cd app
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e '.[dev]'
+```
+
+### Google Calendar
+
+One-time local OAuth flow to generate a refresh token - see DEVELOPMENT.md "Google Calendar
+setup" for the full walkthrough (Cloud Console project, OAuth client, calendar sharing):
+
+```bash
+python -m agents42.integrations.google_calendar_auth
+```
+
+### OpenClaw + WhatsApp
+
+Run natively per the organiser's starter kit / our earlier `get_mooving` project - see
+DEVELOPMENT.md "Running OpenClaw" for the installer and WhatsApp linking steps. Point it at
+`openclaw/workspace/skills/front-desk/` and set `AGENTS42_API_BASE_URL` to the backend above.
 
 ## Running the tests
 
 ```bash
-pytest
+cd app
+.venv/bin/pytest
 ```
 
-All tests mock the LLM — no API key or AWS credentials are required to run the test suite.
-
-## Running the demo
-
-CLI (processes every sample invoice, prints an agent trace, writes `data/output/invoices.{json,csv}`):
-
-```bash
-python -m examples.invoice_processing.run_cli
-```
-
-Streamlit UI (pick a sample, watch the agent trace step-by-step, approve/reject flagged
-anomalies, download the export):
-
-```bash
-streamlit run examples/invoice_processing/app_streamlit.py
-```
-
-Both require a real `LLM_PROVIDER` configured in `.env` (unlike the test suite, which mocks
-the LLM).
-
-## Adapting this to the real SME problem (after the 5 Sep 2026 kickoff)
-
-1. Create `examples/<new-problem>/` with its own `schema.py`, `agents.py`, `graph.py`,
-   `prompts.py` — following the same shape as `examples/invoice_processing/`.
-2. Reuse `agents42.llm.provider.get_llm()`, the node helpers in `agents42.graph.builder`, and
-   `agents42.tools.export` as-is.
-3. Point the Streamlit UI's data source and trace rendering at the new domain.
-
-See `docs/2026-08-27-sme-problem-brainstorm.md` for a catalog of candidate SME problem
-patterns (from a pre-kickoff brainstorm)
-to help classify which shape the real problem fits, and
-`docs/2026-08-27-sme-solutions-and-action-plan.md` for a shortlist of candidate agent
-solutions plus a phased action plan through the hackathon timeline.
+All tests run against an in-memory SQLite database and a fake Calendar client - no real Postgres,
+Google account, or LLM required. Scheduling math (`app/src/agents42/scheduling/service.py`) is
+pure Python with no I/O, so it's exhaustively unit tested directly.
 
 ## Status
 
-Design and implementation plan are complete and reviewed; code has not been written yet.
+First vertical slice implemented: customer resolve/create, deterministic availability search
+(2-hour grooming + 1-hour buffer), booking creation against a real Google Calendar with a
+recheck-immediately-before-booking guard, and orphaned-Calendar-event rollback if the DB write
+fails. Not yet built: rescheduling, cancellation, owner-facing commands, multi-staff/location
+support - see AGENTS42.md "Not in this slice".
+
+## Docs
+
+- [AGENTS42.md](AGENTS42.md) - agent architecture, tool contract, guardrails, roadmap.
+- [DEVELOPMENT.md](DEVELOPMENT.md) - local dev workflow, testing levels, AWS deployment, cautions.
+- `docs/2026-09-05-agents42-proposal.md` - the official hackathon proposal.
+- `docs/2026-08-27-sme-*.md` - pre-kickoff brainstorm/action-plan (historical context).

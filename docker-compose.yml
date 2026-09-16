@@ -1,0 +1,42 @@
+# OpenClaw is intentionally NOT a service here. Both reference implementations
+# (the organiser's starter kit and our earlier get_mooving project) install and run
+# OpenClaw directly on the host via its own installer, including for WhatsApp session
+# linking. Containerizing that install is unproven and not worth the risk this early -
+# see DEVELOPMENT.md "Why OpenClaw is not in Docker Compose". Only the deterministic
+# backend (API + database) is containerized.
+services:
+  app:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./businesses:/app/businesses:ro
+      - ./credentials:/app/credentials:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:
