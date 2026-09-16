@@ -11,7 +11,10 @@ BUSINESSES_DIR = Path(__file__).resolve().parents[2] / "businesses"
 def test_groomer_profile_loads():
     profile = load_business_profile("demo-groomer", businesses_dir=BUSINESSES_DIR)
 
-    assert profile.name == "Happy Paws Grooming"
+    # Structural checks only - name/address are expected to be edited per-business
+    # without needing a test update every time.
+    assert profile.id == "demo-groomer"
+    assert profile.name
     assert profile.timezone == "Asia/Singapore"
     assert profile.services["full_grooming"].duration_minutes == 120
     assert profile.services["full_grooming"].turnaround_minutes == 60

@@ -3,7 +3,7 @@
 # edit the agent's generic rules (openclaw/workspace/skills/front-desk/SKILL.md)
 # or the scheduling code to support a new business.
 id: demo-groomer
-name: Happy Paws Grooming
+name: 42 Grooming
 timezone: Asia/Singapore
 
 # The Google Calendar this business's availability is checked against and
@@ -11,7 +11,7 @@ timezone: Asia/Singapore
 # account or OAuth user configured via GOOGLE_CALENDAR_* env vars.
 calendar_id: primary
 
-address: "123 Grooming Lane, Singapore"
+address: "8 Somapah Road, Singapore 487372"
 
 services:
   full_grooming:

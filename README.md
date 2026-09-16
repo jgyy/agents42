@@ -100,7 +100,11 @@ support - see AGENTS42.md "Not in this slice".
 
 ## Docs
 
+- [SETUP.md](SETUP.md) - setting this up from scratch on a new machine/person, including exactly
+  which one file needs to be sent privately and which don't.
+- [OPERATION.md](OPERATION.md) - running an already-set-up stack day to day: start/stop, status,
+  logs, safety, resetting test data, troubleshooting.
 - [AGENTS42.md](AGENTS42.md) - agent architecture, tool contract, guardrails, roadmap.
-- [DEVELOPMENT.md](DEVELOPMENT.md) - local dev workflow, testing levels, AWS deployment, cautions.
+- [DEVELOPMENT.md](DEVELOPMENT.md) - contributor/build workflow, testing levels, AWS deployment.
 - `docs/2026-09-05-agents42-proposal.md` - the official hackathon proposal.
 - `docs/2026-08-27-sme-*.md` - pre-kickoff brainstorm/action-plan (historical context).
