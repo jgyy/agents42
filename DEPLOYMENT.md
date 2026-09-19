@@ -47,6 +47,36 @@ Billing note: Lightsail bills for the instance's existence, not its running stat
 doesn't stop billing, only deleting does. Given the hackathon lease has a capped budget, delete
 rather than stop if this needs to go away for a while.
 
+## Giving a teammate SSH access
+
+Don't hand out the `.pem` file above - it's the original key Lightsail auto-generated when the
+instance was created, and there's no way to tell one person's use of a shared key apart from
+another's, or to revoke just one person's access later. Add each teammate's own key instead:
+
+**They generate a key pair on their own machine** (skip if they already have one they use
+elsewhere):
+```bash
+ssh-keygen -t ed25519 -C "their-name-agents42"
+```
+Default location, passphrase optional - just press Enter through the prompts. Then they get you
+their **public** key (safe to send over Slack/email, it's not a secret):
+```bash
+cat ~/.ssh/id_ed25519.pub
+```
+
+**You add it to the instance** (once, using your own `.pem` access):
+```bash
+ssh -i ~/.ssh/LightsailDefaultKey-ap-southeast-1.pem ubuntu@<instance-static-ip> \
+  "echo '<their public key line>' >> ~/.ssh/authorized_keys"
+```
+
+**They connect with their own key** from then on:
+```bash
+ssh -i ~/.ssh/id_ed25519 ubuntu@<instance-static-ip>
+```
+Give them the instance's IP the same way you'd share anything else not meant to be public - a
+direct message, not a public channel.
+
 ## What's running there
 
 - **Docker Compose** (FastAPI + Postgres) - same `docker-compose.yml` as local, ports bound to
