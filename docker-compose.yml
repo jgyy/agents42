@@ -9,6 +9,7 @@ services:
     build:
       context: .
       dockerfile: app/Dockerfile
+    restart: unless-stopped
     env_file:
       - .env
     ports:
@@ -28,6 +29,7 @@ services:
 
   postgres:
     image: postgres:17
+    restart: unless-stopped
     env_file:
       - .env
     environment:

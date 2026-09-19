@@ -92,19 +92,25 @@ pure Python with no I/O, so it's exhaustively unit tested directly.
 
 ## Status
 
-First vertical slice implemented: customer resolve/create, deterministic availability search
+First vertical slice implemented and **deployed live on AWS Lightsail** (see
+[DEPLOYMENT.md](DEPLOYMENT.md)): customer resolve/create, deterministic availability search
 (2-hour grooming + 1-hour buffer), booking creation against a real Google Calendar with a
 recheck-immediately-before-booking guard, and orphaned-Calendar-event rollback if the DB write
-fails. Not yet built: rescheduling, cancellation, owner-facing commands, multi-staff/location
-support - see AGENTS42.md "Not in this slice".
+fails. Verified end-to-end against the hackathon's own AWS Bedrock gateway through a real linked
+WhatsApp number. Not yet built: rescheduling, cancellation, owner-facing commands,
+multi-staff/location support - see AGENTS42.md "Not in this slice".
 
 ## Docs
 
+- [OWNER-GUIDE.md](OWNER-GUIDE.md) - for the business owner running this, no coding knowledge
+  assumed: checking it's working, AWS login, restarting it safely, basic SSH, costs, when to call
+  a developer.
 - [SETUP.md](SETUP.md) - setting this up from scratch on a new machine/person, including exactly
   which one file needs to be sent privately and which don't.
 - [OPERATION.md](OPERATION.md) - running an already-set-up stack day to day: start/stop, status,
   logs, safety, resetting test data, troubleshooting.
 - [AGENTS42.md](AGENTS42.md) - agent architecture, tool contract, guardrails, roadmap.
-- [DEVELOPMENT.md](DEVELOPMENT.md) - contributor/build workflow, testing levels, AWS deployment.
+- [DEVELOPMENT.md](DEVELOPMENT.md) - contributor/build workflow, testing levels.
+- [DEPLOYMENT.md](DEPLOYMENT.md) - the live AWS instance: details, redeploy procedure, gotchas.
 - `docs/2026-09-05-agents42-proposal.md` - the official hackathon proposal.
 - `docs/2026-08-27-sme-*.md` - pre-kickoff brainstorm/action-plan (historical context).
