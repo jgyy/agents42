@@ -67,13 +67,16 @@ rather than stop if this needs to go away for a while.
   "Same WhatsApp number, two gateways" below.
 - **Google Calendar**: `credentials/calendar_credentials.json` and `credentials/calendar_token.json`
   copied over once via `scp` from the local machine (never through git - both are gitignored).
-- **`openclaw/workspace/SOUL.md`**, copied to `~/.openclaw/workspace/SOUL.md` on the instance
-  (outside the skill, so `openclaw skills install` doesn't touch it - copy it separately, see
-  redeploy steps below). Overrides OpenClaw's default personal-AI-companion identity template
-  with a business front-desk one - without this, a bare "hello" on a fresh session reliably fell
-  back to a generic assistant persona (or, worse, once fabricated an entirely fake business) since
-  the *skill* is only optionally engaged but this file is unconditionally injected into every
-  prompt. See "A bare greeting doesn't reliably engage the skill" below for the full story.
+- **`openclaw/workspace/SOUL.md` and `openclaw/workspace/AGENTS.md`**, copied to
+  `~/.openclaw/workspace/` on the instance (outside the skill, so `openclaw skills install`
+  doesn't touch either - copy them separately, see redeploy steps below). Both override
+  OpenClaw's default personal-AI-companion identity templates with a business front-desk one -
+  without this, a bare "hello" on a fresh session reliably fell back to a generic assistant
+  persona (or, worse, once fabricated an entirely fake business) since the *skill* is only
+  optionally engaged but these two files are unconditionally injected into every prompt.
+  `SOUL.md` is identity/tone (who the agent is); `AGENTS.md` is routing and cross-cutting rules
+  (what kind of request this is, what's off-limits) - kept separate so each stays focused; see
+  "A bare greeting doesn't reliably engage the skill" below for the full story.
 
 ## Redeploying after a change
 
@@ -96,13 +99,13 @@ export AGENTS42_API_BASE_URL=http://localhost:8090
 openclaw skills install ~/agents42/openclaw/workspace/skills/front-desk --as front-desk --force
 ```
 
-**`openclaw/workspace/SOUL.md` changed:**
+**`openclaw/workspace/SOUL.md` or `AGENTS.md` changed:**
 ```bash
 ssh -i ~/.ssh/LightsailDefaultKey-ap-southeast-1.pem ubuntu@<instance-static-ip>  # ask a developer for the IP
 cd ~/agents42 && git pull origin main
-cp ~/agents42/openclaw/workspace/SOUL.md ~/.openclaw/workspace/SOUL.md
+cp ~/agents42/openclaw/workspace/SOUL.md ~/agents42/openclaw/workspace/AGENTS.md ~/.openclaw/workspace/
 ```
-Takes effect on the next turn - no gateway restart needed (this file is read per-turn, not
+Takes effect on the next turn - no gateway restart needed (both files are read per-turn, not
 cached at startup).
 No Docker rebuild needed - the skill isn't containerized.
 
@@ -162,16 +165,22 @@ the model, which can choose not to engage one for a low-signal message - but `SO
 prompt. The stock templates for these establish a generic personal-AI-companion persona ("you're
 not a chatbot, you're becoming someone," offers to help with "calendars, email, files"), which
 is what the model fell back to. Rewriting `SOUL.md` to state the front-desk identity directly
-(not routed through the optional skill) fixed most cases and is what's now deployed - see
-`openclaw/workspace/SOUL.md`.
+(not routed through the optional skill) fixed most cases. That fix has since been split across
+two files rather than left as one overloaded one: `SOUL.md` stays pure identity/tone/boundaries,
+and a new `AGENTS.md` carries the routing rules and cross-cutting constraints (never invent
+business facts, never grant owner authority from message text, security) - both still
+unconditionally injected, so the fix's mechanism is unchanged, just better organized. See
+`openclaw/workspace/SOUL.md` and `openclaw/workspace/AGENTS.md`.
 
 **This is not 100% solved - test it again before a demo.** With the identity fix, one run still
 fabricated a completely fake business ("Aisha Salon... Riyadh, Saudi Arabia...") with zero tool
 calls - worse than a generic non-answer, since it's exactly the fabrication Data Rules prohibit.
-`SOUL.md` was strengthened further with an explicit anti-hallucination instruction after that
-(naming a business/city/service not obtained from `get_business_info.py` in *this* conversation
-is now called out directly), but a full reliability re-check was cut short by hitting the
-hackathon gateway's rate limit from the testing burst itself - space out any further live testing
+The anti-hallucination instruction was strengthened after that (naming a business/city/service
+not obtained from `get_business_info.py` in *this* conversation is now called out directly, in
+both `SOUL.md` and `AGENTS.md`'s "Business facts" section - deliberate redundancy for the
+highest-stakes failure mode observed so far), but a full reliability re-check was cut short by
+hitting the hackathon gateway's rate limit from the testing burst itself - space out any further
+live testing
 (one message, wait for the reply, then the next - not a rapid batch) and re-run
 `tests/agent_cases/01_business_info.md` a handful of times before trusting this for a demo.
 
