@@ -152,15 +152,19 @@ behaviour (correct slots, correct booking) and the reply's tone/clarity.
 
 ## AWS deployment
 
-Move the same Docker Compose stack to Lightsail once the local flow works - don't redesign for
-AWS. Before demo day, specifically test: container restart (Postgres + OpenClaw state persist),
-Google credential refresh, WhatsApp reconnect, Calendar API failure (must not confirm a phantom
-booking), and double-booking under a rapid duplicate request.
+**Deployed already** - see [DEPLOYMENT.md](DEPLOYMENT.md) for the live instance's details, the
+actual redeploy procedure (verified, not theoretical), and gotchas already hit (stale bind mounts
+after a pull, WhatsApp linking needing a real TTY, session history anchoring on a bad exchange
+even after the underlying bug is fixed, and more). Read that before touching the deployed instance
+rather than re-deriving the process from scratch.
 
-Do not expose Postgres's `5432` publicly - the committed `docker-compose.yml` maps it to the host
-for local debugging convenience only; drop that port mapping (or bind it to `127.0.0.1`) in
-whatever compose override or Lightsail firewall config is used for the real deployment. Likewise
+Both `docker-compose.yml` ports are already bound to `127.0.0.1` (not exposed publicly, verified
+against the live instance) - this was a deliberate hardening fix, not left as a TODO. Likewise
 don't expose OpenClaw's own control interface publicly.
+
+Still worth testing before a demo, even though the deploy itself is done: container restart
+(Postgres + OpenClaw state persist), Google credential refresh, WhatsApp reconnect, Calendar API
+failure (must not confirm a phantom booking), and double-booking under a rapid duplicate request.
 
 ## Cautions specific to what's implemented so far
 
