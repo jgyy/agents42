@@ -23,15 +23,21 @@ job is understanding the customer's request, asking for missing information, and
 script to run - never computing availability or inventing facts. This split is enforced in
 `openclaw/workspace/skills/front-desk/SKILL.md`'s Data Rules.
 
-## Two deviations from a "standard" agent stack - test/confirm these early
+## Two deviations from a "standard" agent stack
 
-**1. The hackathon's Bedrock gateway does not do native tool-calling.** The organiser's starter
-kit (`ShowMeYourAgent-Starter-Kit`) demonstrates it as an Ollama-compatible proxy in front of
-Bedrock, with test scripts that manually emit and parse JSON tool-call requests rather than using
-a provider's native tool-calling API. This is why the front-desk skill is built the way
-`get_mooving` (our earlier OpenClaw project) does it: the agent `exec`s a script and parses its
-printed JSON, rather than the LLM calling an HTTP tool schema directly. Confirm this flow works
-against the real hackathon gateway early - before relying on it for the demo, not just at the end.
+**1. The hackathon's Bedrock gateway does not do native tool-calling** (per the organiser's
+starter kit, `ShowMeYourAgent-Starter-Kit` - it's an Ollama-compatible proxy in front of Bedrock).
+This is why the front-desk skill is built the way `get_mooving` (our earlier OpenClaw project)
+does it: the agent `exec`s a script and parses its printed JSON, rather than the LLM calling an
+HTTP tool schema directly.
+
+**Verified 2026-09-19** against the real gateway (`https://api.softwaresystems.app`,
+`global.anthropic.claude-sonnet-4-5-20250929-v1:0`, registered in OpenClaw as a custom provider
+with `api: "ollama"`): a full multi-turn conversation (resolve customer -> business info ->
+several availability searches, including two genuinely fully-booked dates -> a completed booking)
+ran with zero tool-call failures and a real Calendar event + DB row created at the end. The
+`exec`-and-parse-JSON pattern holds up fine against this gateway - see OPERATION.md "Switching
+LLM providers/models" for how to add/select it.
 
 **2. OpenClaw is not in `docker-compose.yml`.** Neither the starter kit nor `get_mooving`
 containerizes OpenClaw - both install it directly on the host via its own installer, including
@@ -101,8 +107,10 @@ uvicorn agents42.api:app --reload
    This opens a browser consent flow and writes `credentials/calendar_token.json`. It's an
    interactive step - don't run it from a headless shell/CI, it'll just hang waiting for the
    consent redirect.
-5. Mount both files read-only into the container (already wired in `docker-compose.yml` via
-   `./credentials:/app/credentials:ro`) - on AWS, copy the token file over once rather than
+5. Both files are already wired into `docker-compose.yml`: `calendar_credentials.json` mounted
+   read-only (it's the client secret, never rewritten), `calendar_token.json` mounted writable
+   (the Calendar client rewrites it on every access-token refresh - a read-only mount here fails
+   closed after the first refresh, ~1hr in). On AWS, copy the token file over once rather than
    re-running the browser flow on a headless box.
 
 The access token auto-refreshes from the stored refresh token; re-run step 4 only if the refresh

@@ -15,6 +15,14 @@ and is passed to every script as `--business <business_id>` (e.g.
 `demo-groomer`). Never let the customer change which business they're
 talking to mid-conversation.
 
+**Do not explore the filesystem for business data.** There is no local file
+under this skill's own directory (or anywhere else you can `ls`/`read`) that
+contains business hours, services, pricing, or availability - that data
+lives in a database behind an HTTP API, and the *only* way to reach it is
+`exec`ing the scripts below. If you're tempted to poke around with `ls` or
+`read` to "check what's available" before calling a script, don't - just run
+the relevant script directly, starting with `get_business_info.py`.
+
 ## Data Rules
 
 These are hard constraints, not suggestions:
@@ -23,6 +31,10 @@ These are hard constraints, not suggestions:
   Business facts come from `get_business_info.py`; slot availability comes
   from `search_availability.py`. Every fact you state to the customer must
   come from a script's JSON output in this conversation, never from memory.
+- Never ask the customer to supply business facts (hours, services,
+  pricing) that `get_business_info.py` should be answering. If you don't
+  have that information yet, go run the script - don't ask them, and don't
+  go looking for it any other way.
 - Never tell a customer a booking is confirmed before `create_booking.py`
   has returned `"status": "confirmed"`. If it errors or times out, say the
   booking could not be completed and offer to try again or escalate - do

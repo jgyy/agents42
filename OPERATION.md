@@ -57,9 +57,46 @@ openclaw agent --model openrouter/anthropic/claude-sonnet-4.6 -m "test message"
 
 **Adding a new provider you haven't configured yet** (e.g. the hackathon's AWS gateway, or your
 own key for a different model) isn't a `models set` - that only switches between providers
-already configured. Add it via `openclaw onboard` again (same command as initial setup, safe to
-re-run) or `openclaw config set` for a specific non-interactive value - see SETUP.md step 4 and
-`openclaw config set --help`.
+already configured. The recipe below adds a custom provider and was verified live against the
+hackathon gateway - **never put the raw API key in a repo file**; it goes in an env var scoped to
+the gateway service only, referenced by name from the config.
+
+1. Put the key in a systemd drop-in (Linux; adapt for launchd/Task Scheduler elsewhere) - replace
+   `YOUR_KEY_HERE` and pick your own env var name:
+   ```bash
+   mkdir -p ~/.config/systemd/user/openclaw-gateway.service.d
+   cat > ~/.config/systemd/user/openclaw-gateway.service.d/hackathon-gateway.conf <<'EOF'
+   [Service]
+   Environment=HACKATHON_GATEWAY_API_KEY=YOUR_KEY_HERE
+   EOF
+   systemctl --user daemon-reload && systemctl --user restart openclaw-gateway
+   ```
+2. Export the same variable in your own shell too (the `config patch` validation step below runs
+   in your shell, not the service) - e.g. `export HACKATHON_GATEWAY_API_KEY=YOUR_KEY_HERE`.
+3. Write a JSON5 patch (anywhere outside the repo, e.g. `/tmp/`) registering the env-based secrets
+   provider and the model provider itself as a SecretRef, not a literal key:
+   ```json5
+   {
+     secrets: { providers: { default: { source: "env", allowlist: ["HACKATHON_GATEWAY_API_KEY"] } } },
+     models: {
+       providers: {
+         "hackathon-gateway": {
+           baseUrl: "https://api.softwaresystems.app",
+           apiKey: { source: "env", provider: "default", id: "HACKATHON_GATEWAY_API_KEY" },
+           auth: "api-key",
+           api: "ollama",  // matches the gateway's Ollama-compatible shape, per DEVELOPMENT.md
+           models: [{ id: "global.anthropic.claude-sonnet-4-5-20250929-v1:0", name: "Hackathon Claude Sonnet 4.5", api: "ollama" }]
+         }
+       }
+     }
+   }
+   ```
+4. `openclaw config patch --file <path> --dry-run` first (fails loudly if the env var isn't
+   resolvable), then re-run without `--dry-run` to apply. Confirm with `openclaw models list` -
+   the new `hackathon-gateway/...` entry should appear. `openclaw config get models.providers` /
+   `python3 -c "import json; print(json.load(open('~/.openclaw/openclaw.json'))...)"` never shows
+   the raw key, only the SecretRef.
+5. Test without touching the default: `openclaw agent --model hackathon-gateway/global.anthropic.claude-sonnet-4-5-20250929-v1:0 -m "hello"`.
 
 ## Testing without messaging real WhatsApp
 
@@ -156,6 +193,15 @@ shell, not the background systemd service - see SETUP.md step 4's systemd drop-i
 else on this machine already owns that port (Portainer on 8000 is a common one). Change the host
 side of the port mapping in `docker-compose.yml`, and update `AGENTS42_API_BASE_URL` in both
 `.env` and the systemd drop-in to match, then restart both the backend and the gateway.
+
+**Backend returns 404 "No business profile found" (or similar) even though the file is right
+there** - the running container's bind mount may be stale. This happens if the container was
+started, then the working tree changed underneath it in a way that recreates directory inodes
+(e.g. `git checkout`/`git pull` doing a fast-forward that introduces a directory for the first
+time on this branch) - Docker's bind mount can end up pointing at the old, now-orphaned directory
+instead of the current one. Confirm with a quick test (`echo test > businesses/_x && docker
+compose exec app cat /app/businesses/_x`, then remove it) - if the container can't see a file you
+just wrote, `docker compose up -d --force-recreate` fixes it by rebinding the mounts.
 
 **Double-booking / "slot is no longer available" on a slot you just saw offered** - this is the
 recheck-before-booking guard working correctly (DEVELOPMENT.md "Cautions"), most often seen when
