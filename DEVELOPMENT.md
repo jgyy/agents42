@@ -107,8 +107,10 @@ uvicorn agents42.api:app --reload
    This opens a browser consent flow and writes `credentials/calendar_token.json`. It's an
    interactive step - don't run it from a headless shell/CI, it'll just hang waiting for the
    consent redirect.
-5. Mount both files read-only into the container (already wired in `docker-compose.yml` via
-   `./credentials:/app/credentials:ro`) - on AWS, copy the token file over once rather than
+5. Both files are already wired into `docker-compose.yml`: `calendar_credentials.json` mounted
+   read-only (it's the client secret, never rewritten), `calendar_token.json` mounted writable
+   (the Calendar client rewrites it on every access-token refresh - a read-only mount here fails
+   closed after the first refresh, ~1hr in). On AWS, copy the token file over once rather than
    re-running the browser flow on a headless box.
 
 The access token auto-refreshes from the stored refresh token; re-run step 4 only if the refresh
