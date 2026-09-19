@@ -49,33 +49,51 @@ rather than stop if this needs to go away for a while.
 
 ## Giving a teammate SSH access
 
-Don't hand out the `.pem` file above - it's the original key Lightsail auto-generated when the
-instance was created, and there's no way to tell one person's use of a shared key apart from
-another's, or to revoke just one person's access later. Add each teammate's own key instead:
+Every teammate should end up with their own key, not a copy of the `.pem` above (Lightsail's
+original, auto-generated when the instance was created) - a shared key means no way to tell one
+person's session from another's, or to revoke just one person's access later. There's no
+password auth on this box, so *someone* has to already have access to authorize a new key -
+pick whichever of these two fits:
 
-**They generate a key pair on their own machine** (skip if they already have one they use
-elsewhere):
+**They generate a key pair on their own machine either way** (skip if they already have one they
+use elsewhere):
 ```bash
 ssh-keygen -t ed25519 -C "their-name-agents42"
 ```
-Default location, passphrase optional - just press Enter through the prompts. Then they get you
-their **public** key (safe to send over Slack/email, it's not a secret):
+Default location, passphrase optional - just press Enter through the prompts.
+
+### Option A - you add their key for them
+
+They send you their **public** key (safe over Slack/email, it's not a secret):
 ```bash
 cat ~/.ssh/id_ed25519.pub
 ```
-
-**You add it to the instance** (once, using your own `.pem` access):
+You append it, using your own `.pem` access:
 ```bash
 ssh -i ~/.ssh/LightsailDefaultKey-ap-southeast-1.pem ubuntu@<instance-static-ip> \
   "echo '<their public key line>' >> ~/.ssh/authorized_keys"
 ```
-
-**They connect with their own key** from then on:
+They connect with their own key from then on:
 ```bash
 ssh -i ~/.ssh/id_ed25519 ubuntu@<instance-static-ip>
 ```
-Give them the instance's IP the same way you'd share anything else not meant to be public - a
-direct message, not a public channel.
+
+### Option B - share the `.pem` once as a bootstrap, they self-serve
+
+Reasonable shortcut for a team of developers on a short timeline. Send them the `.pem` directly
+(same "private channel only" rule as always). They log in with it once and add their own key
+themselves:
+```bash
+ssh-copy-id -i ~/.ssh/id_ed25519.pub -o "IdentityFile=~/.ssh/LightsailDefaultKey-ap-southeast-1.pem" ubuntu@<instance-static-ip>
+```
+(or manually append their public key to `~/.ssh/authorized_keys`, same as Option A's command,
+just run by them instead of you). From then on they use their own key, same as Option A. Only
+real downside: they've now held a copy of your private key, even briefly - that's not undoable
+after the fact (deleting their copy doesn't erase that it existed). If strict "nobody but me ever
+had this key" matters to you, use Option A instead.
+
+Either way, give them the instance's IP the same way you'd share anything else not meant to be
+public - a direct message, not a public channel.
 
 ## What's running there
 
