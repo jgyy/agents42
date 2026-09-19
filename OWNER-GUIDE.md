@@ -42,9 +42,8 @@ You're now in the AWS Console - the control panel for everything running your sy
 1. In the AWS Console, use the search bar at the top and type **Lightsail**, then click it.
 2. You'll see your instance listed (something like `agent42-demo`) with a status - it should say
    **Running** with a green dot. That's good - it means the server is switched on.
-3. Click the instance name to see more detail, including its address (a set of numbers like
-   `47.130.223.152`) - you won't usually need this yourself, but a developer helping you may ask
-   for it.
+3. Click the instance name to see more detail, including its address (a set of numbers, e.g.
+   `X.X.X.X`) - you won't usually need this yourself, but a developer helping you may ask for it.
 
 ## If something seems broken: try restarting first
 

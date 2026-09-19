@@ -26,18 +26,21 @@ normal path.)
 
 ## Current instance
 
+This repo is public - the instance's IP and the demo WhatsApp number are deliberately left out of
+this file. Ask a developer on the team for either.
+
 | | |
 |---|---|
 | Name | `agent42-demo` |
 | Region | `ap-southeast-1` (Singapore) |
-| Static IP | `47.130.223.152` |
+| Static IP | ask a developer (not published here - this repo is public) |
 | Plan | General purpose, 4GB RAM / 2 vCPU |
 | OS | Ubuntu 24.04 LTS |
 | SSH key | `~/.ssh/LightsailDefaultKey-ap-southeast-1.pem` (local machine only - never committed) |
 | Repo path | `~/agents42` (as the `ubuntu` user) |
 
 ```bash
-ssh -i ~/.ssh/LightsailDefaultKey-ap-southeast-1.pem ubuntu@47.130.223.152
+ssh -i ~/.ssh/LightsailDefaultKey-ap-southeast-1.pem ubuntu@<instance-static-ip>  # ask a developer for the IP
 ```
 
 Billing note: Lightsail bills for the instance's existence, not its running state - `stop`ping it
@@ -58,11 +61,19 @@ rather than stop if this needs to go away for a while.
   a cheap model. Registered as a custom OpenClaw provider; the API key lives in a systemd-scoped
   env var, never in `openclaw.json` or git - see OPERATION.md "Switching LLM providers/models" for
   the exact (reusable) recipe.
-- **WhatsApp**: linked to `+65 8141 4315`, open to everyone (deliberate, for testing and the demo
-  itself - no `dmPolicy` allowlist). This is the **only** instance that should have this number
-  linked - see "One WhatsApp number, one gateway" below.
+- **WhatsApp**: linked to the team's demo number (ask a developer for it - not published here,
+  this repo is public), open to everyone (deliberate, for testing and the demo itself - no
+  `dmPolicy` allowlist). This is the **only** instance that should have this number linked - see
+  "Same WhatsApp number, two gateways" below.
 - **Google Calendar**: `credentials/calendar_credentials.json` and `credentials/calendar_token.json`
   copied over once via `scp` from the local machine (never through git - both are gitignored).
+- **`openclaw/workspace/SOUL.md`**, copied to `~/.openclaw/workspace/SOUL.md` on the instance
+  (outside the skill, so `openclaw skills install` doesn't touch it - copy it separately, see
+  redeploy steps below). Overrides OpenClaw's default personal-AI-companion identity template
+  with a business front-desk one - without this, a bare "hello" on a fresh session reliably fell
+  back to a generic assistant persona (or, worse, once fabricated an entirely fake business) since
+  the *skill* is only optionally engaged but this file is unconditionally injected into every
+  prompt. See "A bare greeting doesn't reliably engage the skill" below for the full story.
 
 ## Redeploying after a change
 
@@ -70,7 +81,7 @@ rather than stop if this needs to go away for a while.
 
 **Backend code changed** (`app/`, `migrations/`, `businesses/*.yaml`, `docker-compose.yml`):
 ```bash
-ssh -i ~/.ssh/LightsailDefaultKey-ap-southeast-1.pem ubuntu@47.130.223.152
+ssh -i ~/.ssh/LightsailDefaultKey-ap-southeast-1.pem ubuntu@<instance-static-ip>  # ask a developer for the IP
 cd ~/agents42 && git pull origin main
 sudo docker compose up -d --build
 curl -s http://127.0.0.1:8090/health
@@ -78,12 +89,21 @@ curl -s http://127.0.0.1:8090/health
 
 **Skill or SKILL.md changed** (`openclaw/workspace/skills/front-desk/`):
 ```bash
-ssh -i ~/.ssh/LightsailDefaultKey-ap-southeast-1.pem ubuntu@47.130.223.152
+ssh -i ~/.ssh/LightsailDefaultKey-ap-southeast-1.pem ubuntu@<instance-static-ip>  # ask a developer for the IP
 cd ~/agents42 && git pull origin main
 source ~/.bashrc && export NVM_DIR="$HOME/.nvm" && \. "$NVM_DIR/nvm.sh"
 export AGENTS42_API_BASE_URL=http://localhost:8090
 openclaw skills install ~/agents42/openclaw/workspace/skills/front-desk --as front-desk --force
 ```
+
+**`openclaw/workspace/SOUL.md` changed:**
+```bash
+ssh -i ~/.ssh/LightsailDefaultKey-ap-southeast-1.pem ubuntu@<instance-static-ip>  # ask a developer for the IP
+cd ~/agents42 && git pull origin main
+cp ~/agents42/openclaw/workspace/SOUL.md ~/.openclaw/workspace/SOUL.md
+```
+Takes effect on the next turn - no gateway restart needed (this file is read per-turn, not
+cached at startup).
 No Docker rebuild needed - the skill isn't containerized.
 
 **Docs only** (`.md` files): just `git pull`, nothing to redeploy.
@@ -131,3 +151,37 @@ confusing and hard to debug (a reply might come from either one, using different
 Only one gateway should ever be linked to the number people are actually messaging. When we moved
 to Lightsail, we unlinked the local machine's WhatsApp session (`openclaw channels logout
 --channel whatsapp`) so AWS is the sole responder.
+
+**A bare greeting doesn't reliably engage the skill - fix the identity files, not just SKILL.md.**
+Confirmed by direct testing: a fresh session's "hello" failed to engage the front-desk skill in
+every attempt (0/11 across both local and AWS, multiple wording revisions to SKILL.md,
+and even with every *other* skill removed via `agents.entries.main.skills: ["front-desk"]` -
+none of that moved the needle). Root cause: OpenClaw's skills are only optionally summarized to
+the model, which can choose not to engage one for a low-signal message - but `SOUL.md`,
+`IDENTITY.md`, `AGENTS.md`, and `USER.md` are **unconditionally** injected into every single
+prompt. The stock templates for these establish a generic personal-AI-companion persona ("you're
+not a chatbot, you're becoming someone," offers to help with "calendars, email, files"), which
+is what the model fell back to. Rewriting `SOUL.md` to state the front-desk identity directly
+(not routed through the optional skill) fixed most cases and is what's now deployed - see
+`openclaw/workspace/SOUL.md`.
+
+**This is not 100% solved - test it again before a demo.** With the identity fix, one run still
+fabricated a completely fake business ("Aisha Salon... Riyadh, Saudi Arabia...") with zero tool
+calls - worse than a generic non-answer, since it's exactly the fabrication Data Rules prohibit.
+`SOUL.md` was strengthened further with an explicit anti-hallucination instruction after that
+(naming a business/city/service not obtained from `get_business_info.py` in *this* conversation
+is now called out directly), but a full reliability re-check was cut short by hitting the
+hackathon gateway's rate limit from the testing burst itself - space out any further live testing
+(one message, wait for the reply, then the next - not a rapid batch) and re-run
+`tests/agent_cases/01_business_info.md` a handful of times before trusting this for a demo.
+
+**Rapid-fire messages can also trigger a separate WhatsApp delivery bug.** Independent of the
+above: sending several different messages to the same session in quick succession (rapid manual
+testing, or a burst of automated test calls) can result in the *same* outbound reply being resent
+for every message, regardless of what was actually asked - confirmed via matching
+`sha256:...` hashes on every "Sending message" log line across otherwise-distinct inbound
+messages, while `openclaw sessions tail` showed each turn's `model.completed` succeeding
+independently. This looks like a bug in OpenClaw's own outbound queuing (already on the latest
+version, `2026.9.5`), not something in this repo's code. No fix available from our side - the
+practical mitigation is not sending messages faster than the agent can reply, in both manual and
+automated testing.
