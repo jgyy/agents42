@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """resolve_customer.py --phone "+6591234567" [--name "Sarah Tan"] --json
 
-Finds or creates the customer by phone number. --name is required only the
-first time a new phone number is seen; omit it on later calls once you
-already have a customer_id.
+Finds or creates the customer by phone number. If the phone is new and
+--name is omitted, this returns {"needs_name": true} rather than an error -
+ask the customer for their name and run again with --name to create them.
 """
 
 import argparse

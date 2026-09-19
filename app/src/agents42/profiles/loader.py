@@ -17,6 +17,7 @@ from agents42.config import settings
 class ServiceProfile(BaseModel):
     duration_minutes: int
     turnaround_minutes: int
+    display_name: str | None = None  # falls back to a humanized key if unset - see api.py
 
 
 class OpeningHours(BaseModel):

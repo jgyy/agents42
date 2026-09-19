@@ -14,9 +14,13 @@ from agents42.api import app, get_calendar_client
 from agents42.db import get_session
 from agents42.integrations.google_calendar import CalendarError
 from agents42.models import Base, Booking
+from agents42.profiles.loader import load_business_profile
 from agents42.scheduling.service import BusyPeriod
 
 REPO_BUSINESSES_DIR = Path(__file__).resolve().parents[2] / "businesses"
+# Read the actual demo profile rather than hardcoding its name/display copy,
+# which is expected to be edited per-business without breaking tests.
+DEMO_PROFILE = load_business_profile("demo-groomer", businesses_dir=REPO_BUSINESSES_DIR)
 
 
 def next_weekday(base: date, weekday: int) -> date:
@@ -117,8 +121,25 @@ def resolve_customer(client, phone="91234567", name="Sarah Tan"):
 
 def test_unknown_phone_creates_customer(client):
     body = resolve_customer(client)
+    assert body["found"] is True
     assert body["created"] is True
     assert body["name"] == "Sarah Tan"
+
+
+def test_new_phone_without_name_returns_needs_name_not_422(client):
+    response = client.post("/customers/resolve", json={"phone": "90001111"})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["found"] is False
+    assert body["needs_name"] is True
+    assert body["id"] is None
+    assert body["phone"] == "+6590001111"
+
+    # Retrying with a name now succeeds and creates the customer.
+    followup = resolve_customer(client, phone="90001111", name="Late Name")
+    assert followup["found"] is True
+    assert followup["created"] is True
+    assert followup["name"] == "Late Name"
 
 
 def test_returning_phone_is_recognised_without_duplicate(client):
@@ -188,11 +209,30 @@ def test_full_booking_flow_creates_calendar_event_and_db_row(client, fake_calend
     body = booking_response.json()
     assert body["status"] == "confirmed"
     assert body["google_event_id"] == "evt-1"
+    assert body["business_name"] == DEMO_PROFILE.name  # not just business_id - see AGENTS42.md
     assert fake_calendar.created_events == ["evt-1"]
 
     fetched = client.get(f"/bookings/{body['id']}")
     assert fetched.status_code == 200
     assert fetched.json()["id"] == body["id"]
+    assert fetched.json()["business_name"] == DEMO_PROFILE.name
+
+
+def test_get_business_info(client):
+    response = client.get("/businesses/demo-groomer")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["id"] == "demo-groomer"
+    assert body["name"] == DEMO_PROFILE.name
+    assert body["services"]["full_grooming"]["display_name"] == DEMO_PROFILE.services["full_grooming"].display_name
+    assert body["services"]["full_grooming"]["duration_minutes"] == 120
+    assert body["opening_hours"]["monday"] == {"open": "09:00", "close": "18:00"}
+    assert "sunday" not in body["opening_hours"]
+
+
+def test_get_business_info_unknown_business_404(client):
+    response = client.get("/businesses/does-not-exist")
+    assert response.status_code == 404
 
 
 def test_booking_rechecks_availability_and_rejects_now_busy_slot(client, fake_calendar):

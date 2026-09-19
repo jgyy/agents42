@@ -68,24 +68,32 @@ class ResolveCustomerRequest(BaseModel):
 
 
 class CustomerResponse(BaseModel):
-    id: str
+    found: bool
+    needs_name: bool = False
+    id: str | None = None
     phone: str
-    name: str
+    name: str | None = None
     created: bool = False
 
 
 @app.post("/customers/resolve", response_model=CustomerResponse)
 def resolve_customer(body: ResolveCustomerRequest, session: Session = Depends(get_session)) -> CustomerResponse:
     try:
-        customer, created = resolve_or_create_customer(session, body.phone, body.name)
+        resolution = resolve_or_create_customer(session, body.phone, body.name)
     except InvalidPhoneNumber as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except ValueError as exc:
-        # name required for a brand-new customer
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if resolution.needs_name:
+        # A new phone number with no name yet is a normal step in the
+        # conversation, not an error - the caller (SKILL.md's Main Plan) asks
+        # for a name and calls this again, rather than parsing a 422.
+        return CustomerResponse(found=False, needs_name=True, phone=resolution.phone)
 
     session.commit()
-    return CustomerResponse(id=str(customer.id), phone=customer.phone, name=customer.name, created=created)
+    customer = resolution.customer
+    return CustomerResponse(
+        found=True, id=str(customer.id), phone=customer.phone, name=customer.name, created=resolution.created
+    )
 
 
 @app.get("/customers/{customer_id}", response_model=CustomerResponse)
@@ -93,7 +101,7 @@ def get_customer(customer_id: str, session: Session = Depends(get_session)) -> C
     customer = session.get(Customer, _parse_uuid(customer_id, field="customer_id"))
     if customer is None:
         raise HTTPException(status_code=404, detail="Customer not found")
-    return CustomerResponse(id=str(customer.id), phone=customer.phone, name=customer.name)
+    return CustomerResponse(found=True, id=str(customer.id), phone=customer.phone, name=customer.name)
 
 
 # --- Availability ------------------------------------------------------------
@@ -115,18 +123,69 @@ class AvailabilitySearchResponse(BaseModel):
     slots: list[SlotResponse]
 
 
-def _load_profile_and_service(business_id: str, service_name: str):
+def _load_profile(business_id: str):
     try:
-        profile = load_business_profile(business_id)
+        return load_business_profile(business_id)
     except UnknownBusinessError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except InvalidBusinessProfileError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+
+def _load_profile_and_service(business_id: str, service_name: str):
+    profile = _load_profile(business_id)
     service = profile.services.get(service_name)
     if service is None:
         raise HTTPException(status_code=422, detail=f"Unknown service {service_name!r} for business {business_id!r}")
     return profile, service
+
+
+def _humanize(key: str) -> str:
+    return key.replace("_", " ").title()
+
+
+# --- Business info -----------------------------------------------------------
+
+
+class ServiceInfoResponse(BaseModel):
+    display_name: str
+    duration_minutes: int
+
+
+class OpeningHoursResponse(BaseModel):
+    open: str
+    close: str
+
+
+class BusinessInfoResponse(BaseModel):
+    id: str
+    name: str
+    address: str | None
+    timezone: str
+    services: dict[str, ServiceInfoResponse]
+    opening_hours: dict[str, OpeningHoursResponse]
+
+
+@app.get("/businesses/{business_id}", response_model=BusinessInfoResponse)
+def get_business_info(business_id: str) -> BusinessInfoResponse:
+    profile = _load_profile(business_id)
+    return BusinessInfoResponse(
+        id=profile.id,
+        name=profile.name,
+        address=profile.address,
+        timezone=profile.timezone,
+        services={
+            key: ServiceInfoResponse(
+                display_name=svc.display_name or _humanize(key),
+                duration_minutes=svc.duration_minutes,
+            )
+            for key, svc in profile.services.items()
+        },
+        opening_hours={
+            day: OpeningHoursResponse(open=hours.open.strftime("%H:%M"), close=hours.close.strftime("%H:%M"))
+            for day, hours in profile.opening_hours.items()
+        },
+    )
 
 
 @app.post("/availability/search", response_model=AvailabilitySearchResponse)
@@ -176,6 +235,7 @@ class CreateBookingRequest(BaseModel):
 class BookingResponse(BaseModel):
     id: str
     business_id: str
+    business_name: str
     customer_id: str
     service: str
     start: str
@@ -277,6 +337,7 @@ def create_booking(
     return BookingResponse(
         id=str(booking.id),
         business_id=booking.business_id,
+        business_name=profile.name,
         customer_id=str(booking.customer_id),
         service=booking.service,
         start=booking.start_time.isoformat(),
@@ -291,9 +352,11 @@ def get_booking(booking_id: str, session: Session = Depends(get_session)) -> Boo
     booking = session.get(Booking, _parse_uuid(booking_id, field="booking_id"))
     if booking is None:
         raise HTTPException(status_code=404, detail="Booking not found")
+    profile = _load_profile(booking.business_id)
     return BookingResponse(
         id=str(booking.id),
         business_id=booking.business_id,
+        business_name=profile.name,
         customer_id=str(booking.customer_id),
         service=booking.service,
         start=booking.start_time.isoformat(),

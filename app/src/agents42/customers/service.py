@@ -3,6 +3,7 @@ plain Python - never left to the LLM to judge whether two numbers match.
 """
 
 import re
+from typing import NamedTuple
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,6 +11,13 @@ from sqlalchemy.orm import Session
 from agents42.models import Customer
 
 _DEFAULT_COUNTRY_CODE = "65"  # Singapore, per the hackathon's target market
+
+
+class CustomerResolution(NamedTuple):
+    phone: str  # always normalized, even when no customer exists yet
+    customer: Customer | None
+    created: bool
+    needs_name: bool  # True only when phone is new and no name was given
 
 
 class InvalidPhoneNumber(ValueError):
@@ -45,23 +53,27 @@ def find_customer_by_phone(session: Session, phone: str) -> Customer | None:
     return session.scalar(select(Customer).where(Customer.phone == normalized))
 
 
-def resolve_or_create_customer(session: Session, phone: str, name: str | None = None) -> tuple[Customer, bool]:
-    """Find a customer by phone, or create one if none exists.
+def resolve_or_create_customer(session: Session, phone: str, name: str | None = None) -> CustomerResolution:
+    """Find a customer by phone, or create one if a name is given.
 
-    Returns (customer, created). If the customer already exists, their stored
-    name is left untouched even if a different `name` is supplied here - a
-    customer's own record is not silently overwritten by whatever they typed
-    in one conversation.
+    If the customer already exists, their stored name is left untouched even
+    if a different `name` is supplied here - a customer's own record is not
+    silently overwritten by whatever they typed in one conversation.
+
+    If the phone is new and no name was given, this does *not* raise - it
+    returns needs_name=True so the caller can ask for a name and retry,
+    rather than the API-level 422 this used to be (which made "the customer
+    is new" indistinguishable from a real error to callers).
     """
     normalized = normalize_phone(phone)
     existing = session.scalar(select(Customer).where(Customer.phone == normalized))
     if existing is not None:
-        return existing, False
+        return CustomerResolution(normalized, existing, False, False)
 
     if not name:
-        raise ValueError("name is required to create a new customer")
+        return CustomerResolution(normalized, None, False, True)
 
     customer = Customer(phone=normalized, name=name)
     session.add(customer)
     session.flush()
-    return customer, True
+    return CustomerResolution(normalized, customer, True, False)

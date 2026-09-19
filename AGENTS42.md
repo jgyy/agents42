@@ -31,9 +31,10 @@ conversation itself; there's no separate session/memory store yet.
 
 | Script (agent-facing) | Backend endpoint | Purpose |
 |---|---|---|
-| `resolve_customer.py --phone [--name]` | `POST /customers/resolve` | find-or-create by phone, never by name |
+| `resolve_customer.py --phone [--name]` | `POST /customers/resolve` | find-or-create by phone, never by name - returns `needs_name` rather than erroring when a new phone has no name yet |
+| `get_business_info.py --business` | `GET /businesses/{id}` | name, address, hours, services - the only source for these facts |
 | `search_availability.py --business --service --date [--period]` | `POST /availability/search` | real slots, Calendar-checked |
-| `create_booking.py --business --customer_id --service --start` | `POST /bookings` | recheck + Calendar event + DB row, atomically |
+| `create_booking.py --business --customer_id --service --start` | `POST /bookings` | recheck against the same slot logic as availability search + Calendar event + DB row |
 
 Every script prints `{"error": "...", ...}` on failure instead of raising, so the agent always
 has a JSON shape to reason about (see `openclaw/workspace/skills/front-desk/scripts/_client.py`).
@@ -45,8 +46,11 @@ Calendar - the agent has no direct database or Calendar credentials of its own.
 - **Availability and booking facts are never computed by the LLM.** `scheduling/service.py` is
   pure, I/O-free Python; the agent only ever sees its output via the scripts above. This is a
   code-level guarantee, not a prompt instruction the model could ignore.
-- **Recheck before booking.** `POST /bookings` re-queries Calendar and re-validates the slot
-  immediately before creating it - a slot offered earlier in the conversation is never trusted.
+- **Recheck before booking (reduces, doesn't eliminate, double booking).** `POST /bookings`
+  re-queries Calendar and re-validates the slot immediately before creating it - a slot offered
+  earlier in the conversation is never trusted. The check and the create are still two separate
+  calls, not one atomic operation, so a true simultaneous race is possible in principle; see
+  DEVELOPMENT.md "Cautions" for why that's an accepted gap for now, not an oversight.
 - **Fail closed on Calendar/DB errors.** Calendar failures return `502` (never "confirmed"); a
   Calendar-event-created-but-DB-write-failed race deletes the orphaned event rather than leaving
   a phantom booking. See DEVELOPMENT.md "Cautions" for the exact behaviour.

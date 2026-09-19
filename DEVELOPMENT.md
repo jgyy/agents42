@@ -158,9 +158,16 @@ don't expose OpenClaw's own control interface publicly.
 
 - **Phone normalization** (`customers/service.py:normalize_phone`) assumes Singapore numbers by
   default for bare 8-digit input. Revisit if a target business serves another country.
-- **Recheck-before-booking**: `POST /bookings` always re-queries Calendar free/busy and re-runs
-  `is_valid_slot` immediately before creating the event - never trust a slot list from an earlier
-  turn in the conversation, and the API doesn't either.
+- **Recheck-before-booking reduces stale-slot double booking, but isn't a full race guard.**
+  `POST /bookings` always re-queries Calendar free/busy and re-runs `find_available_slots`
+  immediately before creating the event (same function availability search uses, so a requested
+  start must exactly match a currently-valid slot - not just "not overlapping something") - never
+  trust a slot list from an earlier turn in the conversation, and the API doesn't either. What this
+  does *not* do: the check-then-create sequence isn't atomic, so two requests racing within the
+  same few hundred milliseconds could both pass the check before either writes - a genuine TOCTOU
+  window, not just a theoretical one, since FastAPI runs these sync endpoints in a thread pool.
+  Not worth a Postgres advisory lock or per-slot mutex for a single-user hackathon demo; revisit
+  before testing simultaneous customers.
 - **Partial-failure handling**: if the Calendar event is created but the DB write then fails,
   `api.py:create_booking` deletes the Calendar event and returns 500 rather than leaving an
   orphaned event with no corresponding booking record. If the Calendar deletion itself then fails,
