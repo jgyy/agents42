@@ -24,7 +24,7 @@ from agents42.db import get_session, run_migrations
 from agents42.integrations.google_calendar import CalendarClient, CalendarError, GoogleCalendarClient
 from agents42.models import Booking, Customer
 from agents42.profiles.loader import InvalidBusinessProfileError, UnknownBusinessError, load_business_profile
-from agents42.scheduling.service import filter_by_period, find_available_slots, is_valid_slot
+from agents42.scheduling.service import filter_by_period, find_available_slots
 
 logger = logging.getLogger("agents42.api")
 
@@ -198,12 +198,11 @@ def create_booking(
 
     tz = ZoneInfo(profile.timezone)
     start = body.start.replace(tzinfo=tz) if body.start.tzinfo is None else body.start.astimezone(tz)
-    end = start + timedelta(minutes=service.duration_minutes)
 
     weekday = start.strftime("%A").lower()
     hours = profile.opening_hours.get(weekday)
-    if hours is None or start.time() < hours.open or end.time() > hours.close:
-        raise HTTPException(status_code=422, detail="Requested slot is outside opening hours")
+    if hours is None:
+        raise HTTPException(status_code=422, detail="Requested date is outside opening hours")
 
     day_start = datetime.combine(start.date(), hours.open, tzinfo=tz)
     day_end = datetime.combine(start.date(), hours.close, tzinfo=tz)
@@ -213,10 +212,26 @@ def create_booking(
     except CalendarError as exc:
         raise HTTPException(status_code=502, detail=f"Calendar unavailable, booking not confirmed: {exc}") from exc
 
-    # Recheck immediately before booking - never trust availability computed
-    # for an earlier reply in the conversation.
-    if not is_valid_slot(start, end, busy, service.turnaround_minutes):
+    # Recheck immediately before booking, and validate the requested start the
+    # same way availability search does - reusing find_available_slots (rather
+    # than re-deriving opening-hours/buffer/interval rules here a second time)
+    # is what rejects a past start time and a start that doesn't land on
+    # slot_interval_minutes, not just a Calendar conflict. Never trust
+    # availability computed for an earlier reply in the conversation.
+    valid_slots = find_available_slots(
+        start.date(),
+        hours.open,
+        hours.close,
+        busy,
+        service.duration_minutes,
+        service.turnaround_minutes,
+        profile.slot_interval_minutes,
+        tz,
+    )
+    matching_slot = next((slot for slot in valid_slots if slot.start == start), None)
+    if matching_slot is None:
         raise HTTPException(status_code=409, detail="Requested slot is no longer available")
+    end = matching_slot.end
 
     try:
         event_id = calendar_client.create_event(

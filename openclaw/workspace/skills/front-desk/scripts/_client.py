@@ -11,7 +11,7 @@ import sys
 import urllib.error
 import urllib.request
 
-API_BASE_URL = os.environ.get("AGENTS42_API_BASE_URL", "http://localhost:8000")
+API_BASE_URL = os.environ.get("AGENTS42_API_BASE_URL", "http://localhost:8090")
 
 
 def call_api(method: str, path: str, payload: dict | None = None) -> dict:

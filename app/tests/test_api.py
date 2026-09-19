@@ -222,6 +222,48 @@ def test_booking_rechecks_availability_and_rejects_now_busy_slot(client, fake_ca
     assert fake_calendar.created_events == []
 
 
+def test_booking_rejects_start_not_on_slot_interval(client, fake_calendar):
+    customer = resolve_customer(client)
+    tz = ZoneInfo("Asia/Singapore")
+    # groomer.yaml's slot_interval_minutes is 60, starting from 09:00 - 09:37
+    # is free on the calendar but was never an offerable slot.
+    misaligned_start = dt_module.datetime.combine(FRIDAY, time(9, 37), tzinfo=tz)
+
+    response = client.post(
+        "/bookings",
+        json={
+            "business_id": "demo-groomer",
+            "customer_id": customer["id"],
+            "service": "full_grooming",
+            "start": misaligned_start.isoformat(),
+        },
+    )
+    assert response.status_code == 409
+    assert fake_calendar.created_events == []
+
+
+def test_booking_rejects_past_start_time(client, fake_calendar):
+    customer = resolve_customer(client)
+    tz = ZoneInfo("Asia/Singapore")
+    # A Friday that has already passed (70 days = 10 weeks before FRIDAY, so
+    # still a Friday), on a valid slot-interval boundary - only its pastness
+    # should cause the rejection.
+    past_friday = FRIDAY - timedelta(days=70)
+    past_start = dt_module.datetime.combine(past_friday, time(9, 0), tzinfo=tz)
+
+    response = client.post(
+        "/bookings",
+        json={
+            "business_id": "demo-groomer",
+            "customer_id": customer["id"],
+            "service": "full_grooming",
+            "start": past_start.isoformat(),
+        },
+    )
+    assert response.status_code == 409
+    assert fake_calendar.created_events == []
+
+
 def test_booking_not_confirmed_when_calendar_create_fails(client, fake_calendar):
     customer = resolve_customer(client)
     search = client.post(
