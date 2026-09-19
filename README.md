@@ -102,6 +102,9 @@ multi-staff/location support - see AGENTS42.md "Not in this slice".
 
 ## Docs
 
+- [OWNER-GUIDE.md](OWNER-GUIDE.md) - for the business owner running this, no coding knowledge
+  assumed: checking it's working, AWS login, restarting it safely, basic SSH, costs, when to call
+  a developer.
 - [SETUP.md](SETUP.md) - setting this up from scratch on a new machine/person, including exactly
   which one file needs to be sent privately and which don't.
 - [OPERATION.md](OPERATION.md) - running an already-set-up stack day to day: start/stop, status,

@@ -2,7 +2,10 @@
 
 The live AWS deployment: what's running, how to redeploy it, and gotchas hit getting it there.
 For local setup see [SETUP.md](SETUP.md); for day-to-day local operation see
-[OPERATION.md](OPERATION.md). This doc is specifically about the deployed instance.
+[OPERATION.md](OPERATION.md). This doc is specifically about the deployed instance, written for
+a developer - if you're the business owner rather than a developer, use
+[OWNER-GUIDE.md](OWNER-GUIDE.md) instead; it covers the same instance without assuming any coding
+background.
 
 ## The two copies of this code
 
