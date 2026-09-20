@@ -145,20 +145,32 @@ def _humanize(key: str) -> str:
 
 
 def _as_aware(value: datetime, tz: ZoneInfo) -> datetime:
-    """Normalize a DB-loaded datetime before comparing it against a
-    tz-aware one computed in Python. Postgres (production) returns aware
-    datetimes for TIMESTAMPTZ columns, but SQLite (used in tests) silently
-    returns *naive* ones for the same column type - and critically, SQLite
-    preserves the original wall-clock digits exactly as written, without
-    converting to UTC first (verified: writing 13:00+08:00 reads back as
-    naive 13:00, not 05:00). So the timezone to reattach is whichever one
-    was used to *write* the value - always the owning business's own
-    profile timezone in this codebase, never UTC. Comparing naive-vs-aware
-    directly would either raise or, for `==`, silently return False, which
-    would make e.g. the reschedule self-exclusion check below fail
-    verbatim on SQLite while working "by accident" on Postgres.
+    """Normalize a DB-loaded datetime to the business's own timezone before
+    comparing it against a tz-aware one computed in Python, or rendering it
+    into a response.
+
+    The two backends hand back the same TIMESTAMPTZ column differently:
+
+    - SQLite (tests) returns *naive* datetimes, preserving the wall-clock
+      digits exactly as written without converting to UTC first (verified:
+      writing 13:00+08:00 reads back as naive 13:00, not 05:00). The zone to
+      reattach is whichever one *wrote* the value - always the owning
+      business's profile timezone in this codebase, never UTC.
+    - Postgres via psycopg (production) returns *aware* datetimes, but in
+      the connection's session timezone - Etc/UTC in the stock postgres
+      image - so the same 13:00+08:00 arrives as 05:00+00:00. That is the
+      same instant, so `==` comparisons still pass, but `.isoformat()` on it
+      renders "05:00:00+00:00", and the agent relaying that to a customer
+      booked at 1pm would read out the wrong clock time. Convert it.
+
+    Comparing naive-vs-aware directly would either raise or, for `==`,
+    silently return False, which would make e.g. the reschedule
+    self-exclusion check fail verbatim on SQLite while working "by
+    accident" on Postgres.
     """
-    return value if value.tzinfo is not None else value.replace(tzinfo=tz)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=tz)
+    return value.astimezone(tz)
 
 
 def _busy_query_window(date_: date_type, hours, buffer_minutes: int, tz: ZoneInfo) -> tuple[datetime, datetime]:

@@ -947,3 +947,30 @@ def test_cancel_db_write_fails_and_recreate_db_persist_also_fails_does_not_crash
         row = verify_session.get(Booking, uuid.UUID(booking["id"]))
         assert row.status == "confirmed"  # DB never got the "cancelled" write
         assert row.google_event_id == "evt-1"  # still points at the deleted original, not the new "evt-2"
+
+
+# --- Timezone of DB-loaded datetimes in responses ---------------------------
+
+
+@pytest.mark.parametrize(
+    "loaded",
+    [
+        # SQLite: DateTime(timezone=True) reads back naive, wall-clock digits preserved.
+        dt_module.datetime(2026, 10, 2, 13, 0),
+        # Postgres (psycopg): TIMESTAMPTZ reads back aware, in the *connection's*
+        # zone - Etc/UTC in the stock postgres image, so 13:00+08:00 arrives as 05:00+00:00.
+        dt_module.datetime(2026, 10, 2, 5, 0, tzinfo=dt_module.timezone.utc),
+    ],
+    ids=["sqlite-naive", "postgres-aware-utc"],
+)
+def test_db_loaded_datetime_is_rendered_in_business_timezone(loaded):
+    """Every endpoint must speak the business's local time in the string the
+    agent relays to the customer, regardless of which backend the value
+    came from. A UTC-offset string is the same instant but the agent would
+    read "05:00" to a customer booked at 1pm.
+    """
+    from agents42.api import _as_aware
+
+    tz = ZoneInfo(DEMO_PROFILE.timezone)
+    rendered = _as_aware(loaded, tz).isoformat()
+    assert rendered == "2026-10-02T13:00:00+08:00"
