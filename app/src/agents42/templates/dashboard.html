@@ -18,9 +18,16 @@
 
   .warning-banner { background: #fff4e0; color: #7a4a00; border-bottom: 1px solid #f0c987; padding: 0.6rem 1.5rem; font-size: 0.9rem; }
 
-  nav.tabs { display: flex; gap: 0.25rem; background: #fff; border-bottom: 1px solid #ddd; padding: 0 1.25rem; position: sticky; top: 0; z-index: 1; flex-wrap: wrap; }
-  nav.tabs a { display: inline-block; padding: 0.6rem 0.75rem; color: #444; text-decoration: none; font-size: 0.9rem; border-radius: 6px 6px 0 0; }
-  nav.tabs a:hover { color: #000; background: #f0f0ee; text-decoration: none; }
+  nav.tabs { display: flex; gap: 0.5rem; background: #fff; border-bottom: 1px solid #ddd; padding: 0.6rem 1.25rem; position: sticky; top: 0; z-index: 1; flex-wrap: wrap; }
+  nav.tabs a { display: inline-block; padding: 0.4rem 0.9rem; text-decoration: none; font-size: 0.9rem; font-weight: 600; border-radius: 999px; }
+  nav.tabs a:hover, nav.tabs a:focus { text-decoration: none; filter: brightness(0.95); }
+  /* Each tab is tinted to match the section it jumps to, so the nav itself
+     hints at the page's color-coding below. */
+  nav.tabs a[href="#overview"] { background: #fdeeee; color: #922; }
+  nav.tabs a[href="#schedule"] { background: #eaf3ec; color: #2a5934; }
+  nav.tabs a[href="#customers"] { background: #f1edf9; color: #4a3a7a; }
+  nav.tabs a[href="#business"] { background: #fdf3e3; color: #7a5a1a; }
+  nav.tabs a[href="#activity"] { background: #eef1f4; color: #3a4a5a; }
 
   .stats { display: flex; gap: 1rem; padding: 1rem 1.5rem 0; flex-wrap: wrap; }
   .stat { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 0.75rem 1.25rem; min-width: 6rem; text-align: center; }
@@ -75,8 +82,7 @@
 
 <header class="page">
   <h1>{{ profile.name }}</h1>
-  <div class="subtitle">Owner Dashboard — everything happening with your bookings, in one place.
-    Start with Attention below if you're short on time; everything else can wait.</div>
+  <div class="subtitle">Owner Dashboard</div>
 </header>
 
 <div class="warning-banner">
