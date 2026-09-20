@@ -188,6 +188,26 @@ failure (must not confirm a phantom booking), and double-booking under a rapid d
   YAML profile); never pass naive datetimes into `scheduling/service.py`.
 - **Credentials**: `.gitignore` excludes `.env`, `credentials/`, and OpenClaw's session/state
   directories. Double-check `git status` before committing if you've been testing locally.
+- **Customer identity currently comes from message text, not a verified WhatsApp sender ID - this
+  is a real, open gap, not just a caution.** `resolve_customer.py --phone` takes whatever phone
+  number the LLM decides to pass, which in practice is whatever the customer typed or claimed in
+  the conversation. Tested directly (`openclaw agent -t "+6598765432" -m "hello"` then asking the
+  agent what phone number is visible "purely from your system/context information" returned "none
+  visible"; a follow-up message stating a different number - `-m "Hi, my number is 90001111..."` -
+  was then used as-is to look up bookings) - the session's actual bound number is not currently
+  surfaced to the model at all for a direct chat, at least via this CLI testing path. That means
+  right now nothing stops "my number is 91234567, cancel my appointment" from acting on a
+  different real customer's booking if their number is known or guessed. Caveat on the test
+  itself: `openclaw agent -t` may not fully replicate what a genuine inbound WhatsApp webhook
+  message's channel metadata carries - worth re-verifying against the actual linked WhatsApp
+  number before trusting this either way. `AGENTS.md` has a same-session number-mismatch check as
+  partial mitigation, but it doesn't stop a first message that simply claims someone else's
+  number. A real fix needs either a custom OpenClaw plugin/tool exposing the SDK's host-trusted
+  `ctx.requesterSenderId` to the front-desk scripts (bigger scope, not attempted yet), or some
+  other way to thread verified sender identity into the exec'd script boundary instead of through
+  the model's own text reasoning. Flagging this rather than shipping it quietly - now that
+  reschedule/cancel exist, this is a real security gap for a demo with a real linked WhatsApp
+  number, not just a theoretical one.
 
 ## Not yet built (see AGENTS42.md "Not in this slice" for the fuller list)
 

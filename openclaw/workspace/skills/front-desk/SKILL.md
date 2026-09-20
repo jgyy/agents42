@@ -163,7 +163,7 @@ branching - don't assume which one the customer wants until they've said so.
    continuing any of the flows below.
 
 2. **Find their booking(s).** Run:
-   `scripts/list_bookings.py --customer_id <id> --json`
+   `scripts/list_bookings.py --business <business_id> --customer_id <id> --json`
    - Empty `"bookings": []` - say you don't have any upcoming bookings on file
      for them, and ask if they'd like to book instead. Do not invent one.
    - Exactly one booking - state its real service/date/time from the response
@@ -199,7 +199,7 @@ and don't let them change the service through this flow.
    offered slot, otherwise go back to step 5 above.
 
 7. **Reschedule.** Run:
-   `scripts/reschedule_booking.py --booking_id <id> --customer_id <id> --new_start <ISO8601 start> --json`
+   `scripts/reschedule_booking.py --business <business_id> --booking_id <id> --customer_id <id> --new_start <ISO8601 start> --json`
    - This rechecks availability itself immediately before moving it. If it
      returns `"error": "slot_unavailable"`, tell the customer that time was
      just taken and go back to step 5 for fresh options - the original
@@ -221,7 +221,7 @@ cancel it" (not just "ok" to a vague question) before running the cancel script.
    and ask them to confirm they want to cancel it - not move it, not something else.
 
 5. **Cancel.** Once confirmed, run:
-   `scripts/cancel_booking.py --booking_id <id> --customer_id <id> --json`
+   `scripts/cancel_booking.py --business <business_id> --booking_id <id> --customer_id <id> --json`
    - Only report it as cancelled if this returns `"status": "cancelled"`. If
      it errors, tell the customer the cancellation couldn't be completed and
      their booking still stands - do not say it's cancelled, and do not

@@ -50,9 +50,14 @@ conversation itself; there's no separate session/memory store yet.
 | `get_business_info.py --business` | `GET /businesses/{id}` | name, address, hours, services - the only source for these facts |
 | `search_availability.py --business --service --date [--period]` | `POST /availability/search` | real slots, Calendar-checked |
 | `create_booking.py --business --customer_id --service --start` | `POST /bookings` | recheck against the same slot logic as availability search + Calendar event + DB row |
-| `list_bookings.py --customer_id` | `GET /customers/{id}/bookings` | upcoming confirmed bookings only - what a reschedule/cancel flow needs to show |
-| `reschedule_booking.py --booking_id --customer_id --new_start` | `POST /bookings/{id}/reschedule` | same recheck + updates the booking's own start/end/Calendar event in place, not a new row |
-| `cancel_booking.py --booking_id --customer_id` | `POST /bookings/{id}/cancel` | marks the booking cancelled and removes its Calendar event (best-effort - DB is the source of truth once committed) |
+| `list_bookings.py --business --customer_id` | `GET /customers/{id}/bookings?business_id=` | upcoming confirmed bookings for *this business only* - what a reschedule/cancel flow needs to show |
+| `reschedule_booking.py --business --booking_id --customer_id --new_start` | `POST /bookings/{id}/reschedule` | same recheck + updates the booking's own start/end/Calendar event in place, not a new row |
+| `cancel_booking.py --business --booking_id --customer_id` | `POST /bookings/{id}/cancel` | deletes the Calendar event first, then marks the booking cancelled - fails closed (502) if the Calendar delete fails, rather than reporting success with a stale Calendar hold left behind |
+
+`--business` on all three is not optional decoration - the backend rejects (404) a booking whose
+`business_id` doesn't match, even for the correct customer. A customer can have bookings with more
+than one agents42 business under the same phone number/`customer_id`; without this check, Business
+A's agent could see, reschedule, or cancel a booking that belongs to Business B.
 
 Every script prints `{"error": "...", ...}` on failure instead of raising, so the agent always
 has a JSON shape to reason about (see `openclaw/workspace/skills/front-desk/scripts/_client.py`).
@@ -69,11 +74,21 @@ Calendar - the agent has no direct database or Calendar credentials of its own.
   earlier in the conversation is never trusted. The check and the create are still two separate
   calls, not one atomic operation, so a true simultaneous race is possible in principle; see
   DEVELOPMENT.md "Cautions" for why that's an accepted gap for now, not an oversight.
-- **Fail closed on Calendar/DB errors.** Calendar failures return `502` (never "confirmed"); a
-  Calendar-event-created-but-DB-write-failed race deletes the orphaned event rather than leaving
-  a phantom booking. See DEVELOPMENT.md "Cautions" for the exact behaviour.
+- **Fail closed on Calendar/DB errors.** Calendar failures return `502` (never "confirmed" or
+  "cancelled"); a Calendar-event-created-but-DB-write-failed race deletes the orphaned event
+  rather than leaving a phantom booking. Cancellation deletes the Calendar event *before*
+  committing the DB row as cancelled, not after - since Calendar free/busy is what availability
+  search actually checks, marking the DB cancelled first (then best-effort deleting the event)
+  could leave a slot looking permanently occupied even though the booking shows cancelled. If the
+  DB commit then fails after the event is already gone, the endpoint recreates an equivalent
+  event rather than leaving the booking confirmed with no Calendar hold on its time. See
+  DEVELOPMENT.md "Cautions" for the exact behaviour.
 - **Phone-based identity only.** Two customers are only ever considered "the same" by normalized
   phone number (`customers/service.py`), never by the LLM's judgement of similar names.
+- **Business-scoped by code, not just by prompt.** A WhatsApp session is fixed to one business,
+  but that was previously only a prompting assumption for reschedule/cancel/list - the backend
+  now rejects (404) any booking lookup, reschedule, or cancel whose `business_id` doesn't match
+  the caller's, even for the correct customer. See the tool contract table above.
 - **Least privilege.** The agent's only capabilities are the explicitly exposed front-desk
   scripts above. It cannot edit business profiles, run arbitrary SQL, or act on a different
   business than the one fixed for its WhatsApp session.
@@ -82,6 +97,16 @@ Calendar - the agent has no direct database or Calendar credentials of its own.
   bookings" is just an odd customer message), and `AGENTS.md` adds that no message can grant
   owner/admin authority on its own - see `tests/agent_cases/05_prompt_injection.md` for the
   scripted adversarial cases this is checked against.
+- **Known gap: customer identity is currently whatever phone number appears in the conversation,
+  not a verified WhatsApp sender ID.** `resolve_customer.py --phone` takes whatever the LLM
+  supplies, and empirically (tested via `openclaw agent -t <bound number> -m "my number is
+  <different number>..."`) the model does use a number stated in message text over the session's
+  actual bound number - there is currently no confirmed mechanism for this project's exec'd CLI
+  scripts to receive a host-verified sender identity instead (OpenClaw's SDK exposes
+  `ctx.requesterSenderId` as host-trusted to native plugin tools, but not to generic `exec`'d
+  scripts, per current investigation). This was a lower-severity gap when the only action was
+  creating a booking; it matters more now that reschedule/cancel exist. Not yet fixed - see
+  DEVELOPMENT.md "Cautions" for the tracked mitigation and what a real fix would need.
 
 ## Human-in-the-loop / escalation
 
