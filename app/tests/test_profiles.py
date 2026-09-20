@@ -26,3 +26,16 @@ def test_groomer_profile_loads():
 def test_unknown_business_raises(tmp_path):
     with pytest.raises(UnknownBusinessError):
         load_business_profile("does-not-exist", businesses_dir=tmp_path)
+
+
+@pytest.mark.parametrize("business_id", ["../evil", "sub/dir", "demo-groomer.yaml", "", "a b", "..", "dem*"])
+def test_business_id_must_be_a_plain_slug(tmp_path, business_id):
+    """business_id is user-controlled (it comes off the wire), so it must
+    never be allowed to escape businesses_dir or address arbitrary files.
+    """
+    businesses = tmp_path / "businesses"
+    businesses.mkdir()
+    # A valid profile one level *above* businesses_dir - must be unreachable.
+    (tmp_path / "evil.yaml").write_text((BUSINESSES_DIR / "demo-groomer.yaml").read_text())
+    with pytest.raises(UnknownBusinessError):
+        load_business_profile(business_id, businesses_dir=businesses)

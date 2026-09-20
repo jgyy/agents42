@@ -144,6 +144,21 @@ def _humanize(key: str) -> str:
     return key.replace("_", " ").title()
 
 
+def _busy_query_window(date_: date_type, hours, buffer_minutes: int, tz: ZoneInfo) -> tuple[datetime, datetime]:
+    """The window to ask Calendar about for a given business day.
+
+    Google's freebusy only returns periods that intersect [timeMin, timeMax].
+    `is_valid_slot` needs `buffer_minutes` of clear time around every event,
+    so an event ending 15 minutes before opening (or starting 15 minutes
+    after closing) still constrains the first/last slot - it just wouldn't be
+    reported if we only asked about opening hours. Pad both ends by the buffer.
+    """
+    buffer = timedelta(minutes=buffer_minutes)
+    day_start = datetime.combine(date_, hours.open, tzinfo=tz)
+    day_end = datetime.combine(date_, hours.close, tzinfo=tz)
+    return day_start - buffer, day_end + buffer
+
+
 # --- Business info -----------------------------------------------------------
 
 
@@ -200,11 +215,10 @@ def search_availability(
         return AvailabilitySearchResponse(slots=[])  # closed that day
 
     tz = ZoneInfo(profile.timezone)
-    day_start = datetime.combine(body.date, hours.open, tzinfo=tz)
-    day_end = datetime.combine(body.date, hours.close, tzinfo=tz)
+    query_start, query_end = _busy_query_window(body.date, hours, service.turnaround_minutes, tz)
 
     try:
-        busy = calendar_client.get_busy_periods(profile.calendar_id, day_start, day_end)
+        busy = calendar_client.get_busy_periods(profile.calendar_id, query_start, query_end)
     except CalendarError as exc:
         raise HTTPException(status_code=502, detail=f"Calendar unavailable: {exc}") from exc
 
@@ -264,11 +278,10 @@ def create_booking(
     if hours is None:
         raise HTTPException(status_code=422, detail="Requested date is outside opening hours")
 
-    day_start = datetime.combine(start.date(), hours.open, tzinfo=tz)
-    day_end = datetime.combine(start.date(), hours.close, tzinfo=tz)
+    query_start, query_end = _busy_query_window(start.date(), hours, service.turnaround_minutes, tz)
 
     try:
-        busy = calendar_client.get_busy_periods(profile.calendar_id, day_start, day_end)
+        busy = calendar_client.get_busy_periods(profile.calendar_id, query_start, query_end)
     except CalendarError as exc:
         raise HTTPException(status_code=502, detail=f"Calendar unavailable, booking not confirmed: {exc}") from exc
 
