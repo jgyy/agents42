@@ -22,7 +22,7 @@ from agents42.config import settings
 from agents42.customers.service import InvalidPhoneNumber, resolve_or_create_customer
 from agents42.db import get_session, run_migrations
 from agents42.integrations.google_calendar import CalendarClient, CalendarError, GoogleCalendarClient
-from agents42.models import Booking, Customer
+from agents42.models import Booking, Customer, Escalation
 from agents42.profiles.loader import InvalidBusinessProfileError, UnknownBusinessError, load_business_profile
 from agents42.scheduling.service import filter_by_period, find_available_slots
 
@@ -220,27 +220,24 @@ def get_business_info(business_id: str) -> BusinessInfoResponse:
     )
 
 
-@app.post("/availability/search", response_model=AvailabilitySearchResponse)
-def search_availability(
-    body: AvailabilitySearchRequest, calendar_client: CalendarClient = Depends(get_calendar_client)
-) -> AvailabilitySearchResponse:
-    profile, service = _load_profile_and_service(body.business_id, body.service)
-
-    weekday = body.date.strftime("%A").lower()
+def _compute_available_slots(profile, service, date_: date_type, period: str | None, calendar_client: CalendarClient):
+    """Shared by search_availability (customer-facing, JSON) and the owner
+    dashboard's availability panel (server-rendered). Returns raw Slot
+    objects, not a response model - callers decide how to present them.
+    Raises CalendarError on failure rather than an HTTPException, so each
+    caller can translate it into whatever response shape it needs.
+    """
+    weekday = date_.strftime("%A").lower()
     hours = profile.opening_hours.get(weekday)
     if hours is None:
-        return AvailabilitySearchResponse(slots=[])  # closed that day
+        return []  # closed that day
 
     tz = ZoneInfo(profile.timezone)
-    query_start, query_end = _busy_query_window(body.date, hours, service.turnaround_minutes, tz)
-
-    try:
-        busy = calendar_client.get_busy_periods(profile.calendar_id, query_start, query_end)
-    except CalendarError as exc:
-        raise HTTPException(status_code=502, detail=f"Calendar unavailable: {exc}") from exc
+    query_start, query_end = _busy_query_window(date_, hours, service.turnaround_minutes, tz)
+    busy = calendar_client.get_busy_periods(profile.calendar_id, query_start, query_end)
 
     slots = find_available_slots(
-        body.date,
+        date_,
         hours.open,
         hours.close,
         busy,
@@ -249,7 +246,18 @@ def search_availability(
         profile.slot_interval_minutes,
         tz,
     )
-    slots = filter_by_period(slots, body.period)
+    return filter_by_period(slots, period)
+
+
+@app.post("/availability/search", response_model=AvailabilitySearchResponse)
+def search_availability(
+    body: AvailabilitySearchRequest, calendar_client: CalendarClient = Depends(get_calendar_client)
+) -> AvailabilitySearchResponse:
+    profile, service = _load_profile_and_service(body.business_id, body.service)
+    try:
+        slots = _compute_available_slots(profile, service, body.date, body.period, calendar_client)
+    except CalendarError as exc:
+        raise HTTPException(status_code=502, detail=f"Calendar unavailable: {exc}") from exc
     return AvailabilitySearchResponse(slots=[SlotResponse(start=s.start.isoformat(), end=s.end.isoformat()) for s in slots])
 
 
@@ -423,6 +431,19 @@ def reschedule_booking(
         # without this check that business's agent could reschedule a
         # booking the same customer made with a different business.
         raise HTTPException(status_code=404, detail="Booking not found")
+    return _reschedule_booking_core(booking, body.new_start, session, calendar_client)
+
+
+def _reschedule_booking_core(
+    booking: Booking, new_start: datetime, session: Session, calendar_client: CalendarClient
+) -> BookingResponse:
+    """The actual reschedule logic, once the caller has already established
+    it's allowed to act on this booking. Shared by the customer-facing
+    endpoint above (customer_id + business_id checked) and the owner
+    dashboard's reschedule action (business_id checked only) - the
+    Calendar+DB compensation logic below is identical either way, so it
+    must not be duplicated between the two authority levels.
+    """
     if booking.status != "confirmed":
         raise HTTPException(status_code=422, detail=f"Booking is {booking.status!r}, not reschedulable")
 
@@ -430,7 +451,7 @@ def reschedule_booking(
     customer = booking.customer
 
     tz = ZoneInfo(profile.timezone)
-    new_start = body.new_start.replace(tzinfo=tz) if body.new_start.tzinfo is None else body.new_start.astimezone(tz)
+    new_start = new_start.replace(tzinfo=tz) if new_start.tzinfo is None else new_start.astimezone(tz)
     own_start, own_end = _as_aware(booking.start_time, tz), _as_aware(booking.end_time, tz)
 
     # Moving to the exact time the booking is already at is a legitimate
@@ -573,6 +594,15 @@ def cancel_booking(
         # "exists but belongs to a different business" - same 404 either
         # way, same reasoning as reschedule_booking above.
         raise HTTPException(status_code=404, detail="Booking not found")
+    return _cancel_booking_core(booking, session, calendar_client)
+
+
+def _cancel_booking_core(booking: Booking, session: Session, calendar_client: CalendarClient) -> BookingResponse:
+    """The actual cancellation logic, once the caller has already
+    established it's allowed to act on this booking. Shared by the
+    customer-facing endpoint above and the owner dashboard's cancel action,
+    same reasoning as _reschedule_booking_core.
+    """
     if booking.status != "confirmed":
         raise HTTPException(status_code=422, detail=f"Booking is {booking.status!r}, not cancellable")
 
@@ -660,6 +690,60 @@ def cancel_booking(
         end=_as_aware(booking.end_time, tz).isoformat(),
         status=booking.status,
         google_event_id=booking.google_event_id,
+    )
+
+
+class CreateEscalationRequest(BaseModel):
+    business_id: str
+    customer_id: str | None = None
+    booking_id: str | None = None
+    reason: str
+    detail: str | None = None
+
+
+class EscalationResponse(BaseModel):
+    id: str
+    business_id: str
+    customer_id: str | None
+    booking_id: str | None
+    reason: str
+    detail: str | None
+    status: str
+
+
+@app.post("/escalations", response_model=EscalationResponse, status_code=201)
+def create_escalation(body: CreateEscalationRequest, session: Session = Depends(get_session)) -> EscalationResponse:
+    """Called by the front-desk skill whenever it escalates to a human
+    (flag_attention.py) - this is the only thing that makes an escalation
+    visible anywhere beyond the WhatsApp conversation itself. Feeds the
+    owner dashboard's Attention panel.
+    """
+    _load_profile(body.business_id)  # 404 on unknown business, same as every other endpoint
+    customer_uuid = _parse_uuid(body.customer_id, field="customer_id") if body.customer_id else None
+    booking_uuid = _parse_uuid(body.booking_id, field="booking_id") if body.booking_id else None
+    if customer_uuid is not None and session.get(Customer, customer_uuid) is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    if booking_uuid is not None and session.get(Booking, booking_uuid) is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    escalation = Escalation(
+        business_id=body.business_id,
+        customer_id=customer_uuid,
+        booking_id=booking_uuid,
+        reason=body.reason,
+        detail=body.detail,
+        status="open",
+    )
+    session.add(escalation)
+    session.commit()
+    return EscalationResponse(
+        id=str(escalation.id),
+        business_id=escalation.business_id,
+        customer_id=str(escalation.customer_id) if escalation.customer_id else None,
+        booking_id=str(escalation.booking_id) if escalation.booking_id else None,
+        reason=escalation.reason,
+        detail=escalation.detail,
+        status=escalation.status,
     )
 
 

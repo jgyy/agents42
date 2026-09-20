@@ -99,8 +99,11 @@ recheck-immediately-before-booking guard, orphaned-Calendar-event rollback if th
 rescheduling an existing booking to a new time (same recheck-before-committing guard, updates the
 booking in place rather than creating a duplicate), and cancelling an existing booking (marks it
 cancelled and removes its Calendar event). Verified end-to-end against the hackathon's own AWS
-Bedrock gateway through a real linked WhatsApp number. Not yet built: owner-facing commands,
-multi-staff/location support - see AGENTS42.md "Not in this slice".
+Bedrock gateway through a real linked WhatsApp number. A small owner-facing dashboard is also
+implemented (`agents42.owner_api`) - today's/upcoming bookings, manual cancel/reschedule, blocking
+off unavailable time, and an escalation queue - see DEVELOPMENT.md "Owner dashboard". Not yet
+built: an owner-facing AI agent, multi-staff/location support - see AGENTS42.md "Not in this
+slice".
 
 ## Docs
 

@@ -49,15 +49,17 @@ there's a proven pattern for containerizing OpenClaw's WhatsApp session persiste
 
 ```text
 agents42/
-├── docker-compose.yml          # backend (app + postgres) only - not OpenClaw
+├── docker-compose.yml          # backend (app + owner-dashboard + postgres) - not OpenClaw
 ├── .env.example
 ├── app/
 │   ├── Dockerfile
 │   ├── pyproject.toml
 │   ├── src/agents42/
-│   │   ├── api.py              # FastAPI endpoints - thin, delegates to services below
+│   │   ├── api.py               # customer-facing FastAPI endpoints - thin, delegates to services below
+│   │   ├── owner_api.py         # owner dashboard - separate app, reuses api.py's core logic
+│   │   ├── templates/dashboard.html
 │   │   ├── db.py                # engine/session + plain-SQL migration runner
-│   │   ├── models.py            # SQLAlchemy ORM (Customer, Booking)
+│   │   ├── models.py            # SQLAlchemy ORM (Customer, Booking, Escalation, BlockedSlot)
 │   │   ├── config.py            # pydantic-settings
 │   │   ├── customers/service.py # phone normalization, resolve-or-create
 │   │   ├── scheduling/service.py# pure slot math - no I/O, fully unit tested
@@ -67,10 +69,11 @@ agents42/
 ├── businesses/
 │   └── demo-groomer.yaml
 ├── migrations/
-│   └── 0001_init.sql
+│   ├── 0001_init.sql
+│   └── 0002_escalations_and_blocked_slots.sql
 └── openclaw/workspace/skills/front-desk/
     ├── SKILL.md
-    └── scripts/                # resolve_customer.py, search_availability.py, create_booking.py
+    └── scripts/                # resolve_customer.py, search_availability.py, create_booking.py, ...
 ```
 
 ## Running the backend
@@ -128,6 +131,50 @@ openclaw <skill-flag> openclaw/workspace/skills/front-desk/
 Link WhatsApp via OpenClaw's own QR-code flow. Persist its session/state directory across
 restarts (see "AWS deployment" below) so you don't have to relink for every deploy.
 
+## Owner dashboard
+
+A small server-rendered dashboard for the business owner - today's/upcoming bookings with
+customer details inline, manual reschedule/cancel, blocking off unavailable time, and an
+"Attention" queue of escalations the front-desk skill flags via `flag_attention.py`. Not an LLM
+agent - see AGENTS42.md "Owner dashboard" for how this relates to the still-not-built Owner
+Assistant Agent role.
+
+Runs as its own service (`agents42.owner_api:app`), reusing the same built image as `app` (see
+`docker-compose.yml`) - it shares `api.py`'s models, session, Calendar client, and (notably) the
+reschedule/cancel Calendar+DB compensation logic directly, rather than reimplementing it.
+
+```bash
+cp .env.example .env    # set OWNER_DASHBOARD_PASSWORD and OWNER_DASHBOARD_BUSINESS_ID
+docker compose up -d --build
+curl -u <any-username>:$OWNER_DASHBOARD_PASSWORD http://localhost:8091/health
+```
+
+Or without Docker, from the repo root with the venv active (same `PYTHONPATH`/cwd requirements as
+the main app):
+
+```bash
+uvicorn agents42.owner_api:app --port 8091
+```
+
+**Auth**: HTTP Basic, single shared password, any username - matches the product decision (one
+owner, not per-user accounts). The server refuses to start at all if
+`OWNER_DASHBOARD_PASSWORD`/`OWNER_DASHBOARD_BUSINESS_ID` aren't set, and every route except
+`/health` requires the password - an unset password means "always reject," never "no auth
+needed."
+
+**Known, documented limitations** (not silently accepted - revisit before any real production use
+beyond the hackathon):
+- **Plain HTTP, no TLS.** Credentials and customer PII travel unencrypted to whoever's on the
+  network path. No domain name is available for this deployment to get a real Let's Encrypt
+  certificate; a self-signed cert or restricting the Lightsail firewall rule's source IP (see
+  DEPLOYMENT.md) are the cheap mitigations if this matters more later.
+- **No CSRF protection** on the dashboard's POST forms - accepted for a single trusted owner at
+  hackathon scale, not for a real multi-owner product.
+- **"Recently cancelled / changed" is a heuristic** (`updated_at != created_at`, or status
+  `cancelled`), not a real reschedule-history record - there's no dedicated history table.
+- Only supports one business per deployment (`OWNER_DASHBOARD_BUSINESS_ID` is a single fixed
+  value), matching this project's existing "one business per deployment" scope generally.
+
 ## Testing strategy
 
 **Level 1 - unit tests (run constantly):**
@@ -158,9 +205,12 @@ after a pull, WhatsApp linking needing a real TTY, session history anchoring on 
 even after the underlying bug is fixed, and more). Read that before touching the deployed instance
 rather than re-deriving the process from scratch.
 
-Both `docker-compose.yml` ports are already bound to `127.0.0.1` (not exposed publicly, verified
-against the live instance) - this was a deliberate hardening fix, not left as a TODO. Likewise
-don't expose OpenClaw's own control interface publicly.
+Both the customer-facing `app` service's port and `postgres`'s port are bound to `127.0.0.1` (not
+exposed publicly, verified against the live instance) - this was a deliberate hardening fix, not
+left as a TODO. Likewise don't expose OpenClaw's own control interface publicly. The
+`owner-dashboard` service (see "Owner dashboard" below) is the one deliberate exception to this -
+it needs to be reachable from a browser, so it's gated by password auth instead of by network
+isolation.
 
 Still worth testing before a demo, even though the deploy itself is done: container restart
 (Postgres + OpenClaw state persist), Google credential refresh, WhatsApp reconnect, Calendar API

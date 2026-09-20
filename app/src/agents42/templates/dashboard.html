@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ profile.name }} — Owner Dashboard</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 1.5rem; background: #f7f7f5; color: #222; }
+  h1 { margin-top: 0; }
+  h2 { margin-bottom: 0.5rem; }
+  h3 { margin-bottom: 0.25rem; font-size: 0.95rem; color: #555; }
+  .panel { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
+  .booking, .escalation, .blocked { border-bottom: 1px solid #eee; padding: 0.5rem 0; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+  .booking:last-child, .escalation:last-child, .blocked:last-child { border-bottom: none; }
+  .booking .when { font-weight: 600; min-width: 7rem; }
+  .booking .who { color: #555; }
+  .status { font-size: 0.8rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: #eee; }
+  .status-cancelled { background: #fde2e2; color: #a33; }
+  form.inline { display: inline-flex; gap: 0.3rem; align-items: center; margin: 0; }
+  input, select, button { font: inherit; padding: 0.25rem 0.4rem; }
+  button { cursor: pointer; }
+  .flash { padding: 0.6rem 1rem; border-radius: 6px; margin-bottom: 1rem; }
+  .flash-info { background: #e2f0fd; color: #245; }
+  .flash-error { background: #fde2e2; color: #822; }
+  .empty { color: #888; font-style: italic; }
+  .avail-form, .block-form { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem; }
+  .slots { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0; list-style: none; }
+  .slots li { background: #eef; padding: 0.2rem 0.5rem; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+{% if message %}<div class="flash flash-{{ level }}">{{ message }}</div>{% endif %}
+
+<h1>{{ profile.name }}</h1>
+
+<section class="panel">
+  <h2>Today</h2>
+  {% for b in today_bookings %}
+    <div class="booking">
+      <span class="when">{{ to_local(b.start_time).strftime('%H:%M') }}–{{ to_local(b.end_time).strftime('%H:%M') }}</span>
+      <span>{{ b.service }}</span>
+      <span class="who">{{ b.customer.name }} ({{ b.customer.phone }})</span>
+      <form class="inline" method="post" action="/bookings/{{ b.id }}/cancel" onsubmit="return confirm('Cancel this booking?')">
+        <button type="submit">Cancel</button>
+      </form>
+      <form class="inline" method="post" action="/bookings/{{ b.id }}/reschedule">
+        <input type="datetime-local" name="new_start" required>
+        <button type="submit">Reschedule</button>
+      </form>
+    </div>
+  {% else %}
+    <p class="empty">Nothing booked today.</p>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <h2>Upcoming &amp; Recent Activity</h2>
+  <h3>Upcoming</h3>
+  {% for b in upcoming_bookings %}
+    <div class="booking">
+      <span class="when">{{ to_local(b.start_time).strftime('%a %d %b, %H:%M') }}</span>
+      <span>{{ b.service }}</span>
+      <span class="who">{{ b.customer.name }} ({{ b.customer.phone }})</span>
+      <form class="inline" method="post" action="/bookings/{{ b.id }}/cancel" onsubmit="return confirm('Cancel this booking?')">
+        <button type="submit">Cancel</button>
+      </form>
+      <form class="inline" method="post" action="/bookings/{{ b.id }}/reschedule">
+        <input type="datetime-local" name="new_start" required>
+        <button type="submit">Reschedule</button>
+      </form>
+    </div>
+  {% else %}
+    <p class="empty">Nothing upcoming.</p>
+  {% endfor %}
+
+  <h3>Recently cancelled / changed</h3>
+  {% for b in recent_activity %}
+    <div class="booking">
+      <span class="when">{{ to_local(b.start_time).strftime('%a %d %b, %H:%M') }}</span>
+      <span>{{ b.service }}</span>
+      <span class="who">{{ b.customer.name }} ({{ b.customer.phone }})</span>
+      <span class="status {% if b.status == 'cancelled' %}status-cancelled{% endif %}">{{ b.status }}</span>
+    </div>
+  {% else %}
+    <p class="empty">No recent changes.</p>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <h2>Attention</h2>
+  {% for e in open_escalations %}
+    <div class="escalation">
+      <span>{{ e.created_at.strftime('%d %b, %H:%M') }}</span>
+      <span>⚠ {{ e.reason }}{% if e.detail %} — {{ e.detail }}{% endif %}</span>
+      {% if e.customer %}<span class="who">{{ e.customer.name }} ({{ e.customer.phone }})</span>{% endif %}
+      <form class="inline" method="post" action="/escalations/{{ e.id }}/resolve">
+        <button type="submit">Resolve</button>
+      </form>
+    </div>
+  {% else %}
+    <p class="empty">Nothing needs attention.</p>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <h2>Availability &amp; Block Time</h2>
+
+  <form class="avail-form" method="get" action="/">
+    <input type="date" name="avail_date" value="{{ avail_date or '' }}">
+    <select name="avail_service">
+      <option value="">Select service…</option>
+      {% for key, svc in services.items() %}
+        <option value="{{ key }}" {% if key == avail_service %}selected{% endif %}>{{ svc.display_name or key }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Show slots</button>
+  </form>
+  {% if avail_error %}<p class="flash flash-error">{{ avail_error }}</p>{% endif %}
+  {% if avail_date and avail_service and not avail_error %}
+    <ul class="slots">
+      {% for s in available_slots %}
+        <li>{{ s.start.strftime('%H:%M') }}–{{ s.end.strftime('%H:%M') }}</li>
+      {% else %}
+        <li class="empty">No free slots that day.</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  <h3>Block time</h3>
+  <form class="block-form" method="post" action="/block-time">
+    <input type="datetime-local" name="start" required>
+    <span>to</span>
+    <input type="datetime-local" name="end" required>
+    <input type="text" name="reason" placeholder="Reason (optional)">
+    <button type="submit">Block</button>
+  </form>
+
+  <h3>Currently blocked</h3>
+  {% for bl in blocked_slots %}
+    <div class="blocked">
+      <span class="when">{{ to_local(bl.start_time).strftime('%a %d %b, %H:%M') }}–{{ to_local(bl.end_time).strftime('%H:%M') }}</span>
+      {% if bl.reason %}<span class="who">{{ bl.reason }}</span>{% endif %}
+      <form class="inline" method="post" action="/blocked-slots/{{ bl.id }}/unblock">
+        <button type="submit">Unblock</button>
+      </form>
+    </div>
+  {% else %}
+    <p class="empty">Nothing blocked.</p>
+  {% endfor %}
+</section>
+
+</body>
+</html>
