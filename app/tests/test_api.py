@@ -329,6 +329,58 @@ def test_get_business_info_unknown_business_404(client):
     assert response.status_code == 404
 
 
+def test_get_business_info_includes_pricing_and_add_ons(client):
+    response = client.get("/businesses/demo-groomer")
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["services"]["full_grooming"]["price_from"] == "S$60"
+    assert body["services"]["basic_grooming"]["price_from"] == "S$35"
+    assert body["services"]["basic_grooming"]["duration_minutes"] == 120
+
+    assert body["add_ons"]["bath"] == {"display_name": "Bath", "price_from": "S$25"}
+    assert body["add_ons"]["ayurveda_herb_spa"]["price_from"] == "S$35"
+
+    assert "SKC" in body["about"]
+    assert "advised" in body["pricing_note"]
+
+
+def test_basic_grooming_is_actually_bookable(client, fake_calendar):
+    customer = resolve_customer(client)
+    search = client.post(
+        "/availability/search",
+        json={"business_id": "demo-groomer", "service": "basic_grooming", "date": FRIDAY.isoformat()},
+    )
+    assert search.status_code == 200, search.text
+    first_slot = search.json()["slots"][0]
+
+    booking = client.post(
+        "/bookings",
+        json={
+            "business_id": "demo-groomer",
+            "customer_id": customer["id"],
+            "service": "basic_grooming",
+            "start": first_slot["start"],
+        },
+    )
+    assert booking.status_code == 201, booking.text
+    assert booking.json()["service"] == "basic_grooming"
+
+
+def test_add_on_is_not_independently_bookable(client):
+    customer = resolve_customer(client)
+    response = client.post(
+        "/bookings",
+        json={
+            "business_id": "demo-groomer",
+            "customer_id": customer["id"],
+            "service": "bath",
+            "start": f"{FRIDAY.isoformat()}T09:00:00+08:00",
+        },
+    )
+    assert response.status_code == 422
+
+
 def test_booking_rechecks_availability_and_rejects_now_busy_slot(client, fake_calendar):
     customer = resolve_customer(client)
     search = client.post(

@@ -263,14 +263,32 @@
         Closed every day
       {% endfor %}
     </p>
+    {% if profile.about %}<p>{{ profile.about }}</p>{% endif %}
+
     <h3>Services</h3>
     {% for key, svc in services.items() %}
       <div class="booking">
         <span class="who">{{ svc.display_name or key }}</span>
         <span>{{ svc.duration_minutes }} min</span>
         {% if svc.turnaround_minutes %}<span>{{ svc.turnaround_minutes }} min turnaround</span>{% endif %}
+        {% if svc.price_from %}<span>from {{ svc.price_from }}</span>{% endif %}
       </div>
     {% endfor %}
+
+    {% if profile.add_ons %}
+      <h3>Add-ons</h3>
+      {% for key, addon in profile.add_ons.items() %}
+        <div class="booking">
+          <span class="who">{{ addon.display_name or key }}</span>
+          {% if addon.price_from %}<span>from {{ addon.price_from }}</span>{% endif %}
+        </div>
+      {% endfor %}
+      <p class="desc">Priced extras added onto a service above - not booked as their own
+        appointment.</p>
+    {% endif %}
+
+    {% if profile.pricing_note %}<p class="desc">{{ profile.pricing_note }}</p>{% endif %}
+
     <p class="desc" style="margin-top: 0.75rem;">Editing coming later - for now, ask a developer to
       update this business's YAML profile and redeploy.</p>
   </div>

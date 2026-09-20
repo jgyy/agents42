@@ -41,6 +41,13 @@ These are hard constraints, not suggestions:
   Business facts come from `get_business_info.py`; slot availability comes
   from `search_availability.py`. Every fact you state to the customer must
   come from a script's JSON output in this conversation, never from memory.
+  `get_business_info.py`'s response has both `services` (independently
+  bookable - each has a `duration_minutes`, usable with `search_availability.py`/
+  `create_booking.py`) and `add_ons` (priced extras with no appointment slot
+  of their own - `price_from` only). You can quote an add-on's price if
+  asked, but never try to book one as a standalone service - if a customer
+  wants an add-on, confirm which real service they're booking it alongside
+  and mention it's not separately scheduled by this system.
 - Never ask the customer to supply business facts (hours, services,
   pricing) that `get_business_info.py` should be answering. If you don't
   have that information yet, go run the script - don't ask them, and don't

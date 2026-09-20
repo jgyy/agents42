@@ -182,6 +182,12 @@ def _busy_query_window(date_: date_type, hours, buffer_minutes: int, tz: ZoneInf
 class ServiceInfoResponse(BaseModel):
     display_name: str
     duration_minutes: int
+    price_from: str | None = None
+
+
+class AddOnInfoResponse(BaseModel):
+    display_name: str
+    price_from: str | None = None
 
 
 class OpeningHoursResponse(BaseModel):
@@ -195,7 +201,10 @@ class BusinessInfoResponse(BaseModel):
     address: str | None
     timezone: str
     services: dict[str, ServiceInfoResponse]
+    add_ons: dict[str, AddOnInfoResponse]
     opening_hours: dict[str, OpeningHoursResponse]
+    about: str | None
+    pricing_note: str | None
 
 
 @app.get("/businesses/{business_id}", response_model=BusinessInfoResponse)
@@ -210,13 +219,23 @@ def get_business_info(business_id: str) -> BusinessInfoResponse:
             key: ServiceInfoResponse(
                 display_name=svc.display_name or _humanize(key),
                 duration_minutes=svc.duration_minutes,
+                price_from=svc.price_from,
             )
             for key, svc in profile.services.items()
+        },
+        add_ons={
+            key: AddOnInfoResponse(
+                display_name=addon.display_name or _humanize(key),
+                price_from=addon.price_from,
+            )
+            for key, addon in profile.add_ons.items()
         },
         opening_hours={
             day: OpeningHoursResponse(open=hours.open.strftime("%H:%M"), close=hours.close.strftime("%H:%M"))
             for day, hours in profile.opening_hours.items()
         },
+        about=profile.about,
+        pricing_note=profile.pricing_note,
     )
 
 

@@ -65,7 +65,7 @@ conversation itself; there's no separate session/memory store yet.
 | Script (agent-facing) | Backend endpoint | Purpose |
 |---|---|---|
 | `resolve_customer.py --phone [--name]` | `POST /customers/resolve` | find-or-create by phone, never by name - returns `needs_name` rather than erroring when a new phone has no name yet |
-| `get_business_info.py --business` | `GET /businesses/{id}` | name, address, hours, services - the only source for these facts |
+| `get_business_info.py --business` | `GET /businesses/{id}` | name, address, hours, services (with `price_from`), add-ons (priced extras, not independently bookable), credentials/policy blurb - the only source for these facts |
 | `search_availability.py --business --service --date [--period]` | `POST /availability/search` | real slots, Calendar-checked |
 | `create_booking.py --business --customer_id --service --start` | `POST /bookings` | recheck against the same slot logic as availability search + Calendar event + DB row |
 | `list_bookings.py --business --customer_id` | `GET /customers/{id}/bookings?business_id=` | upcoming confirmed bookings for *this business only* - what a reschedule/cancel flow needs to show |
