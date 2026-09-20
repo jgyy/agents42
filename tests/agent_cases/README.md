@@ -35,6 +35,9 @@ AGENTS42_TEST_MODEL=hackathon-gateway/global.anthropic.claude-sonnet-4-5-2025092
 | `04_full_day.md` | Fully booked day and Calendar-down scenarios (both manual - need specific system state) |
 | `05_prompt_injection.md` | Prompt injection, fake owner authority, and implementation-detail probing are all refused |
 | `06_greeting_reliability.md` | 5 varied bare greetings across fresh sessions - reliability, not just correctness once |
+| `07_reschedule.md` | No-booking-on-file case is automated; full happy-path reschedule is manual (real Calendar side effects) |
+| `08_cancel.md` | No-booking-on-file case is automated; happy-path cancel with explicit confirmation is manual (real Calendar side effects) |
+| `09_identity_switch.md` | A different phone number claimed mid-session is escalated, not re-resolved or asked-and-switched |
 
 ## Adding a case
 

@@ -188,9 +188,40 @@ failure (must not confirm a phantom booking), and double-booking under a rapid d
   YAML profile); never pass naive datetimes into `scheduling/service.py`.
 - **Credentials**: `.gitignore` excludes `.env`, `credentials/`, and OpenClaw's session/state
   directories. Double-check `git status` before committing if you've been testing locally.
+- **Customer identity currently comes from message text, not a verified WhatsApp sender ID - this
+  is a real, open gap, not just a caution.** `resolve_customer.py --phone` takes whatever phone
+  number the LLM decides to pass, which in practice is whatever the customer typed or claimed in
+  the conversation. Tested directly (`openclaw agent -t "+6598765432" -m "hello"` then asking the
+  agent what phone number is visible "purely from your system/context information" returned "none
+  visible"; a follow-up message stating a different number - `-m "Hi, my number is 90001111..."` -
+  was then used as-is to look up bookings) - the session's actual bound number is not currently
+  surfaced to the model at all for a direct chat, at least via this CLI testing path. That means
+  right now nothing stops "my number is 91234567, cancel my appointment" from acting on a
+  different real customer's booking if their number is known or guessed. Caveat on the test
+  itself: `openclaw agent -t` may not fully replicate what a genuine inbound WhatsApp webhook
+  message's channel metadata carries - worth re-verifying against the actual linked WhatsApp
+  number before trusting this either way. `AGENTS.md` requires escalating rather than re-resolving
+  if a *different* number shows up mid-session (not just asking which one to use, which would
+  just cost an attacker one extra reply) - but that does nothing for a first message that simply
+  claims someone else's number from the very start, since there's no prior resolved identity yet
+  to notice a mismatch against.
+  What a real fix looks like, more concretely than "needs a plugin": OpenClaw's SDK docs confirm
+  `ctx.requesterSenderId` is host-trusted and available at the plugin/hook layer, and channel docs
+  confirm inbound WhatsApp carries sender/phone metadata - but that metadata isn't exposed
+  everywhere by default specifically *because* it's sensitive (phone numbers, WhatsApp IDs, group
+  IDs, display names), so a plugin hook needs explicit opt-in to see it. This project's
+  front-desk scripts are plain `exec`'d CLI (no plugin code), so none of that reaches them today
+  even in principle. The fix isn't "get the model to read the trusted value and type it correctly
+  into `--phone`" (still LLM-mediated, still spoofable) - it's an inbound-hook plugin, written
+  with that opt-in, that injects the verified number directly into the exec environment (e.g. an
+  env var `resolve_customer.py` prefers over any LLM-supplied `--phone`), so the model never gets
+  a chance to substitute a different one. Not attempted yet - flagging this rather than shipping
+  it quietly, since now that reschedule/cancel exist, this is a real security gap for a demo with
+  a real linked WhatsApp number, not just a theoretical one.
 
 ## Not yet built (see AGENTS42.md "Not in this slice" for the fuller list)
 
-Rescheduling, cancellation, owner-facing commands, multi-staff/multi-location support, and the
-Customer Follow-up / Rescheduling Coordinator agent roles from the original proposal. Don't build
-ahead of what the current milestone needs.
+Owner-facing commands, multi-staff/multi-location support, and the Customer Follow-up /
+Rescheduling Coordinator (owner-triggered, multi-customer disruption handling - not the same as
+the single-booking customer-initiated reschedule/cancel that's built) agent roles from the
+original proposal. Don't build ahead of what the current milestone needs.
