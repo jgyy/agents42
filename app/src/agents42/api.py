@@ -522,6 +522,67 @@ def reschedule_booking(
     )
 
 
+class CancelBookingRequest(BaseModel):
+    customer_id: str
+
+
+@app.post("/bookings/{booking_id}/cancel", response_model=BookingResponse)
+def cancel_booking(
+    booking_id: str,
+    body: CancelBookingRequest,
+    session: Session = Depends(get_session),
+    calendar_client: CalendarClient = Depends(get_calendar_client),
+) -> BookingResponse:
+    booking = session.get(Booking, _parse_uuid(booking_id, field="booking_id"))
+    customer_uuid = _parse_uuid(body.customer_id, field="customer_id")
+    if booking is None or booking.customer_id != customer_uuid:
+        # Don't distinguish "no such booking" from "exists but isn't yours" -
+        # same 404 either way.
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking.status != "confirmed":
+        raise HTTPException(status_code=422, detail=f"Booking is {booking.status!r}, not cancellable")
+
+    profile = _load_profile(booking.business_id)
+    event_id = booking.google_event_id
+
+    booking.status = "cancelled"
+    try:
+        session.commit()
+    except Exception:
+        session.rollback()
+        logger.error(
+            "Cancellation DB write failed for booking %s - booking remains confirmed, Calendar event untouched.",
+            booking.id,
+        )
+        raise HTTPException(status_code=500, detail="Cancellation could not be saved. Please try again.") from None
+
+    # DB is now the source of truth - deleting the Calendar event is
+    # best-effort, same reasoning as reschedule's old-event cleanup: if this
+    # fails, the booking is still correctly cancelled, just a stale event
+    # lingers on the calendar until someone notices and removes it manually.
+    try:
+        calendar_client.delete_event(profile.calendar_id, event_id)
+    except CalendarError:
+        logger.critical(
+            "Cancelled booking %s (DB updated) but failed to delete Calendar event %s - requires manual cleanup.",
+            booking.id,
+            event_id,
+        )
+
+    tz = ZoneInfo(profile.timezone)
+    return BookingResponse(
+        id=str(booking.id),
+        business_id=booking.business_id,
+        business_name=profile.name,
+        customer_id=str(booking.customer_id),
+        service=booking.service,
+        start=_as_aware(booking.start_time, tz).isoformat(),
+        end=_as_aware(booking.end_time, tz).isoformat(),
+        status=booking.status,
+        google_event_id=booking.google_event_id,
+    )
+
+
 class CustomerBookingsResponse(BaseModel):
     bookings: list[BookingResponse]
 

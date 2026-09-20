@@ -45,6 +45,7 @@ class FakeCalendarClient:
         self.deleted_events: list[str] = []
         self.fail_get_busy = False
         self.fail_create = False
+        self.fail_delete = False
 
     def get_busy_periods(self, calendar_id, start, end):
         if self.fail_get_busy:
@@ -63,6 +64,8 @@ class FakeCalendarClient:
         return event_id
 
     def delete_event(self, calendar_id, event_id):
+        if self.fail_delete:
+            raise CalendarError("simulated calendar outage")
         self.deleted_events.append(event_id)
 
 
@@ -654,3 +657,114 @@ def test_orphaned_new_event_is_deleted_when_reschedule_db_write_fails(client, fa
     with TestSession() as verify_session:
         row = verify_session.get(Booking, uuid.UUID(booking["id"]))
         assert row.google_event_id == "evt-1"
+
+
+# --- Cancellation -------------------------------------------------------------
+
+
+def test_cancel_succeeds_and_removes_calendar_event(client, fake_calendar):
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+
+    response = client.post(
+        f"/bookings/{booking['id']}/cancel",
+        json={"customer_id": customer["id"]},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "cancelled"
+    assert response.json()["id"] == booking["id"]
+    assert fake_calendar.deleted_events == ["evt-1"]
+
+
+def test_cancelled_booking_no_longer_appears_in_upcoming_list(client, fake_calendar):
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+
+    client.post(f"/bookings/{booking['id']}/cancel", json={"customer_id": customer["id"]})
+
+    upcoming = client.get(f"/customers/{customer['id']}/bookings")
+    assert upcoming.json()["bookings"] == []
+
+
+def test_cancel_wrong_customer_id_404(client):
+    customer = resolve_customer(client)
+    other_customer = resolve_customer(client, phone="90009999", name="Someone Else")
+    booking = create_booking(client, customer["id"])
+
+    response = client.post(
+        f"/bookings/{booking['id']}/cancel",
+        json={"customer_id": other_customer["id"]},
+    )
+    assert response.status_code == 404
+
+
+def test_cancel_unknown_booking_404(client):
+    customer = resolve_customer(client)
+    response = client.post(
+        "/bookings/00000000-0000-0000-0000-000000000000/cancel",
+        json={"customer_id": customer["id"]},
+    )
+    assert response.status_code == 404
+
+
+def test_cancel_rejects_an_already_cancelled_booking(client, test_engine):
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+
+    TestSession = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
+    with TestSession() as s:
+        row = s.get(Booking, uuid.UUID(booking["id"]))
+        row.status = "cancelled"
+        s.commit()
+
+    response = client.post(
+        f"/bookings/{booking['id']}/cancel",
+        json={"customer_id": customer["id"]},
+    )
+    assert response.status_code == 422
+
+
+def test_cancel_marks_cancelled_even_if_calendar_delete_fails(client, fake_calendar):
+    """DB is the source of truth once committed - a stale Calendar event
+    left behind after a failed delete is a manual-cleanup problem, not a
+    reason to tell the customer their cancellation didn't go through.
+    """
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+    fake_calendar.fail_delete = True
+
+    response = client.post(
+        f"/bookings/{booking['id']}/cancel",
+        json={"customer_id": customer["id"]},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancelled"
+    assert fake_calendar.deleted_events == []  # delete was attempted and failed, not skipped
+
+
+def test_cancellation_db_write_fails_leaves_booking_confirmed(client, fake_calendar, test_engine):
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+
+    TestSession = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
+
+    def failing_get_session():
+        session = FailingCommitSession(TestSession())
+        try:
+            yield session
+        finally:
+            session._inner.close()
+
+    app.dependency_overrides[get_session] = failing_get_session
+
+    response = client.post(
+        f"/bookings/{booking['id']}/cancel",
+        json={"customer_id": customer["id"]},
+    )
+    assert response.status_code == 500
+    assert fake_calendar.deleted_events == []  # never attempted - DB write failed first
+
+    app.dependency_overrides[get_session] = lambda: iter([TestSession()])
+    with TestSession() as verify_session:
+        row = verify_session.get(Booking, uuid.UUID(booking["id"]))
+        assert row.status == "confirmed"

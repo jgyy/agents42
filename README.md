@@ -96,11 +96,11 @@ First vertical slice implemented and **deployed live on AWS Lightsail** (see
 [DEPLOYMENT.md](DEPLOYMENT.md)): customer resolve/create, deterministic availability search
 (2-hour grooming + 1-hour buffer), booking creation against a real Google Calendar with a
 recheck-immediately-before-booking guard, orphaned-Calendar-event rollback if the DB write fails,
-and rescheduling an existing booking to a new time (same recheck-before-committing guard, updates
-the booking in place rather than creating a duplicate). Verified end-to-end against the
-hackathon's own AWS Bedrock gateway through a real linked WhatsApp number. Not yet built:
-cancellation, owner-facing commands, multi-staff/location support - see AGENTS42.md "Not in this
-slice".
+rescheduling an existing booking to a new time (same recheck-before-committing guard, updates the
+booking in place rather than creating a duplicate), and cancelling an existing booking (marks it
+cancelled and removes its Calendar event). Verified end-to-end against the hackathon's own AWS
+Bedrock gateway through a real linked WhatsApp number. Not yet built: owner-facing commands,
+multi-staff/location support - see AGENTS42.md "Not in this slice".
 
 ## Docs
 
