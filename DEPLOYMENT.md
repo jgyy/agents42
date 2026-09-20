@@ -104,11 +104,16 @@ public - a direct message, not a public channel.
   service (`openclaw-gateway`) with lingering enabled so it survives SSH logout and reboots.
 - **`front-desk` skill**, installed from the repo, pointed at the local backend
   (`AGENTS42_API_BASE_URL=http://localhost:8090`, set via a systemd drop-in - see below).
-- **Model**: the hackathon's AWS Bedrock gateway (`api.softwaresystems.app`), set as the
-  **default** model on this instance specifically - unlike local dev boxes, which should stay on
-  a cheap model. Registered as a custom OpenClaw provider; the API key lives in a systemd-scoped
-  env var, never in `openclaw.json` or git - see OPERATION.md "Switching LLM providers/models" for
-  the exact (reusable) recipe.
+- **Model**: intended default is the hackathon's AWS Bedrock gateway
+  (`hackathon-gateway/global.anthropic.claude-sonnet-4-5-20250929-v1:0`), registered as a custom
+  OpenClaw provider with the API key in a systemd-scoped env var, never in `openclaw.json` or
+  git. **Currently running `openrouter/deepseek/deepseek-v4-flash-0731` instead** - swapped in as
+  a workaround while the hackathon gateway's rate limit was blocking testing. This is a
+  stopgap, not the intended final state - **switch back to the hackathon gateway before the real
+  demo/submission** (`openclaw models set hackathon-gateway/global.anthropic.claude-sonnet-4-5-20250929-v1:0`
+  on the instance). See OPERATION.md "Switching LLM providers/models" for the full recipe both
+  ways, and check `openclaw models list | grep default` on the instance for the actual
+  ground truth rather than trusting this doc, since it can drift.
 - **WhatsApp**: linked to the team's demo number (ask a developer for it - not published here,
   this repo is public), open to everyone (deliberate, for testing and the demo itself - no
   `dmPolicy` allowlist). This is the **only** instance that should have this number linked - see

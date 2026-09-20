@@ -98,6 +98,49 @@ the gateway service only, referenced by name from the config.
    the raw key, only the SecretRef.
 5. Test without touching the default: `openclaw agent --model hackathon-gateway/global.anthropic.claude-sonnet-4-5-20250929-v1:0 -m "hello"`.
 
+**Switching to OpenRouter** (e.g. the hackathon gateway's rate limit is blocking you and you need
+the AWS instance to keep answering WhatsApp messages in the meantime - this is what's actually
+deployed there right now, see DEPLOYMENT.md): OpenRouter is a built-in provider, not a custom one
+like the hackathon gateway above, so this is simpler - no JSON5 patch needed.
+
+1. Add your OpenRouter API key (interactive prompt, paste a key like `sk-or-v1-...`):
+   ```bash
+   openclaw models auth login --provider openrouter --method api-key
+   ```
+   Stored as an OpenClaw auth profile (`openclaw models auth list` to confirm) - never touches
+   this repo or any file you'd commit.
+2. **Check which exact model ID actually exists before trusting one** - OpenRouter has several
+   similarly-named variants of most models, and the one that sounds right may not be the one
+   that's configured:
+   ```bash
+   openclaw models list --all --provider openrouter | grep -i deepseek
+   ```
+   The naming pattern is `openrouter/<provider>/<model>` - but check the exact suffix. As of this
+   writing the AWS instance runs `openrouter/deepseek/deepseek-v4-flash-0731`, not the more
+   generic-sounding `openrouter/deepseek/deepseek-v4-flash` (a real, different, separately-listed
+   model) - verify with the command above rather than guessing from memory or this doc.
+3. Test without changing the deployed default first:
+   ```bash
+   openclaw agent --model openrouter/deepseek/deepseek-v4-flash-0731 -m "hello" --json
+   ```
+   then a more useful check that the whole stack still works, not just the model connection:
+   ```bash
+   openclaw agent --model openrouter/deepseek/deepseek-v4-flash-0731 \
+     --session-key "agent:main:openrouter-test" -m "what services do you offer?" --json
+   ```
+   Look for a real tool call (`toolSummary.calls >= 1`) and the actual business name in the
+   reply - if that works, this instance's OpenClaw/backend setup is fine and the hackathon
+   gateway really is the part currently blocked, not something else.
+4. Once satisfied, make it the default the same way as any other configured model:
+   ```bash
+   openclaw models set openrouter/deepseek/deepseek-v4-flash-0731
+   ```
+5. **Switch back to the hackathon gateway before the actual demo/submission** - this is a
+   workaround for the rate limit, not the intended final model:
+   ```bash
+   openclaw models set hackathon-gateway/global.anthropic.claude-sonnet-4-5-20250929-v1:0
+   ```
+
 ## Testing without messaging real WhatsApp
 
 ```bash
