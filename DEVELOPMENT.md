@@ -191,6 +191,7 @@ failure (must not confirm a phantom booking), and double-booking under a rapid d
 
 ## Not yet built (see AGENTS42.md "Not in this slice" for the fuller list)
 
-Rescheduling, cancellation, owner-facing commands, multi-staff/multi-location support, and the
-Customer Follow-up / Rescheduling Coordinator agent roles from the original proposal. Don't build
-ahead of what the current milestone needs.
+Cancellation, owner-facing commands, multi-staff/multi-location support, and the Customer
+Follow-up / Rescheduling Coordinator (owner-triggered, multi-customer disruption handling - not
+the same as the single-booking customer-initiated reschedule that's built) agent roles from the
+original proposal. Don't build ahead of what the current milestone needs.

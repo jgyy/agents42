@@ -1,4 +1,5 @@
 import datetime as dt_module
+import uuid
 from datetime import date, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -120,6 +121,21 @@ def client(test_engine, fake_calendar, monkeypatch):
 def resolve_customer(client, phone="91234567", name="Sarah Tan"):
     response = client.post("/customers/resolve", json={"phone": phone, "name": name})
     assert response.status_code == 200, response.text
+    return response.json()
+
+
+def create_booking(client, customer_id, date_=FRIDAY, business_id="demo-groomer", service="full_grooming"):
+    search = client.post(
+        "/availability/search",
+        json={"business_id": business_id, "service": service, "date": date_.isoformat()},
+    )
+    assert search.status_code == 200, search.text
+    first_slot = search.json()["slots"][0]
+    response = client.post(
+        "/bookings",
+        json={"business_id": business_id, "customer_id": customer_id, "service": service, "start": first_slot["start"]},
+    )
+    assert response.status_code == 201, response.text
     return response.json()
 
 
@@ -435,3 +451,206 @@ def test_orphaned_calendar_event_is_deleted_when_db_write_fails(client, fake_cal
 
     with TestSession() as verify_session:
         assert verify_session.query(Booking).count() == 0
+
+
+# --- Rescheduling ------------------------------------------------------------
+
+
+def _mark_busy_like_the_real_calendar_would(fake_calendar, booking):
+    """FakeCalendarClient.create_event doesn't update .busy automatically -
+    tests that need a just-created booking to actually look occupied on a
+    later get_busy_periods call must say so explicitly.
+    """
+    fake_calendar.busy = [
+        BusyPeriod(
+            start=dt_module.datetime.fromisoformat(booking["start"]),
+            end=dt_module.datetime.fromisoformat(booking["end"]),
+        )
+    ]
+
+
+def test_list_customer_bookings_empty_for_new_customer(client):
+    customer = resolve_customer(client)
+    response = client.get(f"/customers/{customer['id']}/bookings")
+    assert response.status_code == 200, response.text
+    assert response.json()["bookings"] == []
+
+
+def test_list_customer_bookings_returns_upcoming_confirmed(client, fake_calendar):
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+
+    response = client.get(f"/customers/{customer['id']}/bookings")
+    assert response.status_code == 200, response.text
+    bookings = response.json()["bookings"]
+    assert len(bookings) == 1
+    assert bookings[0]["id"] == booking["id"]
+    assert bookings[0]["business_name"] == DEMO_PROFILE.name
+
+
+def test_list_customer_bookings_unknown_customer_404(client):
+    response = client.get("/customers/00000000-0000-0000-0000-000000000000/bookings")
+    assert response.status_code == 404
+
+
+def test_reschedule_to_a_different_slot_succeeds(client, fake_calendar):
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+    _mark_busy_like_the_real_calendar_would(fake_calendar, booking)
+
+    search = client.post(
+        "/availability/search",
+        json={"business_id": "demo-groomer", "service": "full_grooming", "date": FRIDAY.isoformat()},
+    )
+    new_slot = search.json()["slots"][0]  # first slot after the original + its buffer
+    assert new_slot["start"] != booking["start"]
+
+    response = client.post(
+        f"/bookings/{booking['id']}/reschedule",
+        json={"customer_id": customer["id"], "new_start": new_slot["start"]},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["id"] == booking["id"]  # same booking, updated in place
+    assert body["start"] == new_slot["start"]
+    assert body["google_event_id"] == "evt-2"
+    assert fake_calendar.created_events == ["evt-1", "evt-2"]
+    assert fake_calendar.deleted_events == ["evt-1"]  # old event cleaned up
+
+
+def test_reschedule_to_the_exact_same_slot_succeeds(client, fake_calendar):
+    """The booking's own current slot must not count as a conflict against
+    itself - without that exclusion this would incorrectly 409.
+    """
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+    _mark_busy_like_the_real_calendar_would(fake_calendar, booking)
+
+    response = client.post(
+        f"/bookings/{booking['id']}/reschedule",
+        json={"customer_id": customer["id"], "new_start": booking["start"]},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["start"] == booking["start"]
+
+
+def test_reschedule_rejects_a_genuinely_occupied_slot(client, fake_calendar):
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+    _mark_busy_like_the_real_calendar_would(fake_calendar, booking)
+
+    other_start = dt_module.datetime.fromisoformat(booking["start"]) + timedelta(hours=4)
+    other_end = other_start + timedelta(hours=2)
+    fake_calendar.busy.append(BusyPeriod(start=other_start, end=other_end))
+
+    response = client.post(
+        f"/bookings/{booking['id']}/reschedule",
+        json={"customer_id": customer["id"], "new_start": other_start.isoformat()},
+    )
+    assert response.status_code == 409
+    assert fake_calendar.created_events == ["evt-1"]  # no new event created
+
+
+def test_reschedule_wrong_customer_id_404(client, fake_calendar):
+    customer = resolve_customer(client)
+    other_customer = resolve_customer(client, phone="90009999", name="Someone Else")
+    booking = create_booking(client, customer["id"])
+    _mark_busy_like_the_real_calendar_would(fake_calendar, booking)
+
+    response = client.post(
+        f"/bookings/{booking['id']}/reschedule",
+        json={"customer_id": other_customer["id"], "new_start": booking["start"]},
+    )
+    assert response.status_code == 404
+
+
+def test_reschedule_unknown_booking_404(client):
+    customer = resolve_customer(client)
+    response = client.post(
+        "/bookings/00000000-0000-0000-0000-000000000000/reschedule",
+        json={"customer_id": customer["id"], "new_start": FRIDAY.isoformat() + "T09:00:00+08:00"},
+    )
+    assert response.status_code == 404
+
+
+def test_reschedule_not_confirmed_when_calendar_down(client, fake_calendar):
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+    _mark_busy_like_the_real_calendar_would(fake_calendar, booking)
+    fake_calendar.fail_get_busy = True
+
+    response = client.post(
+        f"/bookings/{booking['id']}/reschedule",
+        json={"customer_id": customer["id"], "new_start": booking["start"]},
+    )
+    assert response.status_code == 502
+
+
+def test_reschedule_not_confirmed_when_new_event_create_fails(client, fake_calendar):
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+    _mark_busy_like_the_real_calendar_would(fake_calendar, booking)
+    fake_calendar.fail_create = True
+
+    response = client.post(
+        f"/bookings/{booking['id']}/reschedule",
+        json={"customer_id": customer["id"], "new_start": booking["start"]},
+    )
+    assert response.status_code == 502
+    # Original booking/event untouched - nothing was deleted or changed.
+    assert fake_calendar.created_events == ["evt-1"]
+    assert fake_calendar.deleted_events == []
+    unchanged = client.get(f"/bookings/{booking['id']}")
+    assert unchanged.json()["start"] == booking["start"]
+    assert unchanged.json()["google_event_id"] == "evt-1"
+
+
+def test_reschedule_rejects_a_non_confirmed_booking(client, fake_calendar, test_engine):
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+    _mark_busy_like_the_real_calendar_would(fake_calendar, booking)
+
+    TestSession = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
+    with TestSession() as s:
+        row = s.get(Booking, uuid.UUID(booking["id"]))
+        row.status = "cancelled"
+        s.commit()
+
+    response = client.post(
+        f"/bookings/{booking['id']}/reschedule",
+        json={"customer_id": customer["id"], "new_start": booking["start"]},
+    )
+    assert response.status_code == 422
+    assert fake_calendar.created_events == ["evt-1"]  # only from the original booking, no reschedule attempt
+
+
+def test_orphaned_new_event_is_deleted_when_reschedule_db_write_fails(client, fake_calendar, test_engine):
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+    _mark_busy_like_the_real_calendar_would(fake_calendar, booking)
+
+    TestSession = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
+
+    def failing_get_session():
+        session = FailingCommitSession(TestSession())
+        try:
+            yield session
+        finally:
+            session._inner.close()
+
+    app.dependency_overrides[get_session] = failing_get_session
+
+    response = client.post(
+        f"/bookings/{booking['id']}/reschedule",
+        json={"customer_id": customer["id"], "new_start": booking["start"]},
+    )
+
+    assert response.status_code == 500
+    assert fake_calendar.created_events == ["evt-1", "evt-2"]
+    assert fake_calendar.deleted_events == ["evt-2"]  # only the orphaned new event, not the original
+
+    # Restore a working session to verify the original booking is untouched.
+    app.dependency_overrides[get_session] = lambda: iter([TestSession()])
+    with TestSession() as verify_session:
+        row = verify_session.get(Booking, uuid.UUID(booking["id"]))
+        assert row.google_event_id == "evt-1"

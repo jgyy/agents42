@@ -144,6 +144,23 @@ def _humanize(key: str) -> str:
     return key.replace("_", " ").title()
 
 
+def _as_aware(value: datetime, tz: ZoneInfo) -> datetime:
+    """Normalize a DB-loaded datetime before comparing it against a
+    tz-aware one computed in Python. Postgres (production) returns aware
+    datetimes for TIMESTAMPTZ columns, but SQLite (used in tests) silently
+    returns *naive* ones for the same column type - and critically, SQLite
+    preserves the original wall-clock digits exactly as written, without
+    converting to UTC first (verified: writing 13:00+08:00 reads back as
+    naive 13:00, not 05:00). So the timezone to reattach is whichever one
+    was used to *write* the value - always the owning business's own
+    profile timezone in this codebase, never UTC. Comparing naive-vs-aware
+    directly would either raise or, for `==`, silently return False, which
+    would make e.g. the reschedule self-exclusion check below fail
+    verbatim on SQLite while working "by accident" on Postgres.
+    """
+    return value if value.tzinfo is not None else value.replace(tzinfo=tz)
+
+
 def _busy_query_window(date_: date_type, hours, buffer_minutes: int, tz: ZoneInfo) -> tuple[datetime, datetime]:
     """The window to ask Calendar about for a given business day.
 
@@ -366,6 +383,132 @@ def get_booking(booking_id: str, session: Session = Depends(get_session)) -> Boo
     if booking is None:
         raise HTTPException(status_code=404, detail="Booking not found")
     profile = _load_profile(booking.business_id)
+    tz = ZoneInfo(profile.timezone)
+    return BookingResponse(
+        id=str(booking.id),
+        business_id=booking.business_id,
+        business_name=profile.name,
+        customer_id=str(booking.customer_id),
+        service=booking.service,
+        start=_as_aware(booking.start_time, tz).isoformat(),
+        end=_as_aware(booking.end_time, tz).isoformat(),
+        status=booking.status,
+        google_event_id=booking.google_event_id,
+    )
+
+
+class RescheduleBookingRequest(BaseModel):
+    customer_id: str
+    new_start: datetime
+
+
+@app.post("/bookings/{booking_id}/reschedule", response_model=BookingResponse)
+def reschedule_booking(
+    booking_id: str,
+    body: RescheduleBookingRequest,
+    session: Session = Depends(get_session),
+    calendar_client: CalendarClient = Depends(get_calendar_client),
+) -> BookingResponse:
+    booking = session.get(Booking, _parse_uuid(booking_id, field="booking_id"))
+    customer_uuid = _parse_uuid(body.customer_id, field="customer_id")
+    if booking is None or booking.customer_id != customer_uuid:
+        # Don't distinguish "no such booking" from "exists but isn't yours" -
+        # same 404 either way.
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking.status != "confirmed":
+        raise HTTPException(status_code=422, detail=f"Booking is {booking.status!r}, not reschedulable")
+
+    profile, service = _load_profile_and_service(booking.business_id, booking.service)
+    customer = booking.customer
+
+    tz = ZoneInfo(profile.timezone)
+    new_start = body.new_start.replace(tzinfo=tz) if body.new_start.tzinfo is None else body.new_start.astimezone(tz)
+
+    weekday = new_start.strftime("%A").lower()
+    hours = profile.opening_hours.get(weekday)
+    if hours is None:
+        raise HTTPException(status_code=422, detail="Requested date is outside opening hours")
+
+    query_start, query_end = _busy_query_window(new_start.date(), hours, service.turnaround_minutes, tz)
+    try:
+        busy = calendar_client.get_busy_periods(profile.calendar_id, query_start, query_end)
+    except CalendarError as exc:
+        raise HTTPException(status_code=502, detail=f"Calendar unavailable, booking not rescheduled: {exc}") from exc
+
+    # This booking's own current slot must not count against itself when
+    # checking the new time - it's the exact thing being moved, not a
+    # conflicting third-party event. Google's freebusy API doesn't return
+    # event IDs to filter by, so exclude by matching the booking's own
+    # recorded start/end instead (set when it was created/last rescheduled).
+    own_start, own_end = _as_aware(booking.start_time, tz), _as_aware(booking.end_time, tz)
+    busy = [b for b in busy if not (b.start == own_start and b.end == own_end)]
+
+    # Recheck immediately before rescheduling, same reasoning as create_booking.
+    valid_slots = find_available_slots(
+        new_start.date(),
+        hours.open,
+        hours.close,
+        busy,
+        service.duration_minutes,
+        service.turnaround_minutes,
+        profile.slot_interval_minutes,
+        tz,
+    )
+    matching_slot = next((slot for slot in valid_slots if slot.start == new_start), None)
+    if matching_slot is None:
+        raise HTTPException(status_code=409, detail="Requested slot is no longer available")
+    new_end = matching_slot.end
+
+    try:
+        new_event_id = calendar_client.create_event(
+            profile.calendar_id,
+            summary=f"{booking.service} - {customer.name}",
+            start=new_start,
+            end=new_end,
+            description=f"Booked via agents42 for {customer.name} ({customer.phone})",
+        )
+    except CalendarError as exc:
+        raise HTTPException(status_code=502, detail=f"Calendar unavailable, booking not rescheduled: {exc}") from exc
+
+    old_event_id = booking.google_event_id
+    booking.start_time = new_start
+    booking.end_time = new_end
+    booking.google_event_id = new_event_id
+    try:
+        session.commit()
+    except Exception:
+        session.rollback()
+        logger.error(
+            "Reschedule DB write failed after new Calendar event %s was created for booking %s - "
+            "deleting the orphaned new event, leaving the original booking untouched.",
+            new_event_id,
+            booking.id,
+        )
+        try:
+            calendar_client.delete_event(profile.calendar_id, new_event_id)
+        except CalendarError:
+            logger.critical(
+                "Failed to delete orphaned Calendar event %s after a reschedule DB failure - "
+                "requires manual reconciliation.",
+                new_event_id,
+            )
+        raise HTTPException(status_code=500, detail="Reschedule could not be saved. Please try again.") from None
+
+    # DB is now the source of truth for the new time - clean up the old
+    # Calendar event. Best-effort: if this fails, the booking data itself is
+    # already correct, just a stale duplicate event lingers on the calendar
+    # until someone notices and removes it manually.
+    try:
+        calendar_client.delete_event(profile.calendar_id, old_event_id)
+    except CalendarError:
+        logger.critical(
+            "Rescheduled booking %s (DB updated, new Calendar event %s created) but failed to "
+            "delete the old Calendar event %s - requires manual cleanup.",
+            booking.id,
+            new_event_id,
+            old_event_id,
+        )
+
     return BookingResponse(
         id=str(booking.id),
         business_id=booking.business_id,
@@ -377,3 +520,57 @@ def get_booking(booking_id: str, session: Session = Depends(get_session)) -> Boo
         status=booking.status,
         google_event_id=booking.google_event_id,
     )
+
+
+class CustomerBookingsResponse(BaseModel):
+    bookings: list[BookingResponse]
+
+
+@app.get("/customers/{customer_id}/bookings", response_model=CustomerBookingsResponse)
+def list_customer_bookings(customer_id: str, session: Session = Depends(get_session)) -> CustomerBookingsResponse:
+    """Upcoming, confirmed bookings only - what a reschedule flow needs to
+    show ("which of your bookings?"), not a full history. A past or
+    already-cancelled booking isn't actionable here.
+    """
+    customer = session.get(Customer, _parse_uuid(customer_id, field="customer_id"))
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    now = datetime.now(tz=ZoneInfo("UTC"))
+    profiles = {}
+
+    def profile_for(business_id: str):
+        if business_id not in profiles:
+            profiles[business_id] = _load_profile(business_id)
+        return profiles[business_id]
+
+    # Each booking's own timezone (needed to correctly normalize a
+    # possibly-naive start_time, see _as_aware) is its business's, which can
+    # differ per booking - load profiles before filtering, not after.
+    upcoming = [
+        b
+        for b in customer.bookings
+        if b.status == "confirmed" and _as_aware(b.start_time, ZoneInfo(profile_for(b.business_id).timezone)) >= now
+    ]
+    upcoming.sort(key=lambda b: _as_aware(b.start_time, ZoneInfo(profile_for(b.business_id).timezone)))
+
+    results = []
+    for booking in upcoming:
+        profile = profiles[booking.business_id]
+        tz = ZoneInfo(profile.timezone)
+        start = _as_aware(booking.start_time, tz)
+        end = _as_aware(booking.end_time, tz)
+        results.append(
+            BookingResponse(
+                id=str(booking.id),
+                business_id=booking.business_id,
+                business_name=profile.name,
+                customer_id=str(booking.customer_id),
+                service=booking.service,
+                start=start.isoformat(),
+                end=end.isoformat(),
+                status=booking.status,
+                google_event_id=booking.google_event_id,
+            )
+        )
+    return CustomerBookingsResponse(bookings=results)
