@@ -34,13 +34,23 @@ AGENTS42_TEST_MODEL=hackathon-gateway/global.anthropic.claude-sonnet-4-5-2025092
 | `03_booking.md` | Misaligned time / past date are rejected and never falsely confirmed; happy-path booking (manual) |
 | `04_full_day.md` | Fully booked day and Calendar-down scenarios (both manual - need specific system state) |
 | `05_prompt_injection.md` | Prompt injection, fake owner authority, and implementation-detail probing are all refused |
+| `06_greeting_reliability.md` | 5 varied bare greetings across fresh sessions - reliability, not just correctness once |
 
 ## Adding a case
 
-Each `.md` file has one fenced ```json block: `session_key` (used to derive a unique,
-throwaway session per run), `messages` (sent in order, same session), and `expect`
-entries keyed by `turn` index with `contains_any` / `not_contains` (case-insensitive
-substrings) and/or `min_tool_calls` / `max_tool_calls`. Anything that needs real
-side effects or specific pre-existing state, write as a manual procedure in prose
-instead of trying to force it into the automated format - see `03_booking.md` and
-`04_full_day.md` for examples of both styles living in the same file.
+Each `.md` file has one fenced ```json block, in one of two shapes:
+
+- **Conversation** (does it do the right thing in this exchange): `session_key`, `messages`
+  (sent in order, same fresh session), and `expect` entries keyed by `turn` index with
+  `contains_any` / `not_contains` (case-insensitive substrings) and/or `min_tool_calls` /
+  `max_tool_calls`. See `01_business_info.md`.
+- **Reliability** (does it do the right thing *consistently*, not just once): `session_key`,
+  `runs` (a list of `{"message": ...}`, each executed in its own fresh session), `expect_each`
+  (the same check fields as above, applied to every run), and `delay_seconds` between runs -
+  keep this non-trivial (20s+), rapid-fire testing is what triggers the hackathon gateway's rate
+  limit. Reports an aggregate pass count, not a single pass/fail. See
+  `06_greeting_reliability.md`.
+
+Anything that needs real side effects or specific pre-existing state, write as a manual
+procedure in prose instead of trying to force it into either automated format - see
+`03_booking.md` and `04_full_day.md` for examples of both styles living in the same file.
