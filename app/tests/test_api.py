@@ -883,10 +883,11 @@ def test_cancel_db_write_fails_recreates_calendar_event(client, fake_calendar, t
         assert row.google_event_id == "evt-2"  # points at the recreated event, not the deleted one
 
 
-def test_cancel_db_write_fails_and_recreate_also_fails_does_not_crash(client, fake_calendar, test_engine):
-    """The double-failure case (Calendar deleted, DB commit fails, and the
-    compensating recreate also fails) can't be fully healed automatically -
-    it must still fail cleanly with a 500, not raise an unhandled error.
+def test_cancel_db_write_fails_and_calendar_recreate_also_fails_does_not_crash(client, fake_calendar, test_engine):
+    """One of two distinct double-failure cases: Calendar deleted, DB
+    commit fails, and the *recreate call itself* also fails - no
+    replacement event exists at all. Can't be fully healed automatically,
+    but must still fail cleanly with a 500, not raise an unhandled error.
     """
     customer = resolve_customer(client)
     booking = create_booking(client, customer["id"])
@@ -908,3 +909,41 @@ def test_cancel_db_write_fails_and_recreate_also_fails_does_not_crash(client, fa
         json={"customer_id": customer["id"], "business_id": "demo-groomer"},
     )
     assert response.status_code == 500
+    assert fake_calendar.created_events == ["evt-1"]  # no replacement was created
+
+
+def test_cancel_db_write_fails_and_recreate_db_persist_also_fails_does_not_crash(client, fake_calendar, test_engine):
+    """The other distinct double-failure case: the replacement event
+    genuinely gets created on Calendar, but persisting its id back to the
+    booking also fails - a different manual-cleanup situation from the
+    "no replacement exists" case above (here a live, untracked event
+    exists, and the DB still points at the deleted original).
+    """
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+
+    TestSession = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
+
+    def failing_get_session():
+        session = FailingCommitSession(TestSession())  # every commit() fails
+        try:
+            yield session
+        finally:
+            session._inner.close()
+
+    app.dependency_overrides[get_session] = failing_get_session
+    # fake_calendar.fail_create stays False - the recreate call itself succeeds this time.
+
+    response = client.post(
+        f"/bookings/{booking['id']}/cancel",
+        json={"customer_id": customer["id"], "business_id": "demo-groomer"},
+    )
+    assert response.status_code == 500
+    assert fake_calendar.deleted_events == ["evt-1"]
+    assert fake_calendar.created_events == ["evt-1", "evt-2"]  # the replacement WAS created on Calendar
+
+    app.dependency_overrides[get_session] = lambda: iter([TestSession()])
+    with TestSession() as verify_session:
+        row = verify_session.get(Booking, uuid.UUID(booking["id"]))
+        assert row.status == "confirmed"  # DB never got the "cancelled" write
+        assert row.google_event_id == "evt-1"  # still points at the deleted original, not the new "evt-2"

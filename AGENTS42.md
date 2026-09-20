@@ -85,10 +85,19 @@ Calendar - the agent has no direct database or Calendar credentials of its own.
   DEVELOPMENT.md "Cautions" for the exact behaviour.
 - **Phone-based identity only.** Two customers are only ever considered "the same" by normalized
   phone number (`customers/service.py`), never by the LLM's judgement of similar names.
-- **Business-scoped by code, not just by prompt.** A WhatsApp session is fixed to one business,
-  but that was previously only a prompting assumption for reschedule/cancel/list - the backend
-  now rejects (404) any booking lookup, reschedule, or cancel whose `business_id` doesn't match
-  the caller's, even for the correct customer. See the tool contract table above.
+- **Business-scoped by code, not just by prompt - with one caveat.** A WhatsApp session is fixed
+  to one business, but that was previously only a prompting assumption for reschedule/cancel/list
+  - the backend now rejects (404) any booking lookup, reschedule, or cancel whose `business_id`
+  doesn't match the caller's, even for the correct customer. See the tool contract table above.
+  The precise guarantee this gives today: **it prevents accidental cross-business operations,
+  provided the agent passes its configured `business_id` correctly** - `business_id` itself is
+  still an LLM-supplied script argument (`--business <id>`, per SKILL.md), not something
+  structurally bound to the WhatsApp number the same way `booking.customer_id` is bound to a
+  phone via `resolve_customer.py`. That's adequate for this deployment (one business, one
+  `businesses/*.yaml` file, nothing to confuse it with). Before hosting more than one business in
+  a single deployment, bind `business_id` server-side per agent/session instead of accepting it
+  as a request parameter at all - the same class of fix as the identity gap below, for the same
+  reason.
 - **Least privilege.** The agent's only capabilities are the explicitly exposed front-desk
   scripts above. It cannot edit business profiles, run arbitrary SQL, or act on a different
   business than the one fixed for its WhatsApp session.
@@ -101,12 +110,20 @@ Calendar - the agent has no direct database or Calendar credentials of its own.
   not a verified WhatsApp sender ID.** `resolve_customer.py --phone` takes whatever the LLM
   supplies, and empirically (tested via `openclaw agent -t <bound number> -m "my number is
   <different number>..."`) the model does use a number stated in message text over the session's
-  actual bound number - there is currently no confirmed mechanism for this project's exec'd CLI
-  scripts to receive a host-verified sender identity instead (OpenClaw's SDK exposes
-  `ctx.requesterSenderId` as host-trusted to native plugin tools, but not to generic `exec`'d
-  scripts, per current investigation). This was a lower-severity gap when the only action was
-  creating a booking; it matters more now that reschedule/cancel exist. Not yet fixed - see
-  DEVELOPMENT.md "Cautions" for the tracked mitigation and what a real fix would need.
+  actual bound number. `AGENTS.md`'s Security section mitigates the *mid-session* version of this
+  (never re-resolve to a different number once one is set - escalate instead), but that does
+  nothing for a first message that simply claims someone else's number from the start.
+  Where a real fix would live: OpenClaw's channel/plugin layer does carry a host-trusted sender
+  identity (`ctx.requesterSenderId` and channel-scoped metadata like `senderId`/`chatId` are
+  available at the plugin/hook layer) - but WhatsApp inbound metadata isn't exposed everywhere by
+  default precisely because it can carry sensitive data (phone numbers, WhatsApp IDs, group IDs,
+  display names), so plugin hooks need explicit opt-in to see it, and this project's front-desk
+  scripts (plain `exec`'d CLI, no plugin code) have no path to it at all today. In short: the
+  gateway knows the real sender, the model is deliberately not handed it. A real fix means writing
+  an inbound-hook plugin (with the necessary opt-in) that threads the verified number into the
+  exec environment for these scripts directly - e.g. an env var `resolve_customer.py` prefers
+  over any LLM-supplied `--phone` - not a bigger prompt-instruction change. Not yet built; see
+  DEVELOPMENT.md "Cautions" for the fuller investigation trail.
 
 ## Human-in-the-loop / escalation
 
@@ -125,7 +142,7 @@ The backend logs booking failures and Calendar-deletion rollbacks via Python `lo
 cover, since it only exercises the Python backend - `tests/agent_cases/` runs scripted
 conversations against the real OpenClaw gateway. Not part of CI (real LLM calls, real budget
 against the hackathon gateway); run manually before a demo or after any SKILL.md/AGENTS.md/
-SOUL.md change. Eight scenarios so far:
+SOUL.md change. Nine scenarios so far:
 
 - `01_business_info.md` - greeting doesn't create a customer; FAQ uses the real business-info tool
 - `02_new_customer.md` - new phone asks for a name; returning customer is recognised
@@ -141,6 +158,8 @@ SOUL.md change. Eight scenarios so far:
 - `07_reschedule.md` - no-booking-on-file case is automated; happy-path reschedule is manual
 - `08_cancel.md` - no-booking-on-file case is automated; happy-path cancel (with explicit
   confirmation before acting) is manual
+- `09_identity_switch.md` - a different phone number claimed mid-session is escalated, not
+  re-resolved or asked-and-switched
 
 Still a real gap relative to the judging rubric's "Observability & Evaluation" criterion: no
 tracing/run history beyond what `openclaw sessions`/`openclaw logs` already give for free, and

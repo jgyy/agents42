@@ -613,15 +613,41 @@ def cancel_booking(
                 end=end,
                 description=f"Booked via agents42 for {customer.name} ({customer.phone})",
             )
-            booking.google_event_id = restored_event_id
-            session.commit()
-        except Exception:
-            session.rollback()
+        except CalendarError:
+            # Nothing recovered: the original event is gone, no replacement
+            # exists, and the DB still shows this booking confirmed - it has
+            # no Calendar hold on its time at all. Manual fix: recreate the
+            # event and point the booking at it (or cancel it properly).
             logger.critical(
                 "Failed to recreate Calendar event for booking %s after a cancellation DB failure - the "
-                "original event is gone and the DB was never updated to match - requires manual reconciliation.",
+                "original event %s is gone and no replacement could be created either - the booking has no "
+                "Calendar hold on its time at all and requires manual recreation.",
                 booking.id,
+                old_event_id,
             )
+        else:
+            booking.google_event_id = restored_event_id
+            try:
+                session.commit()
+            except Exception:
+                session.rollback()
+                # Different situation from the branch above: the
+                # replacement event genuinely exists on Calendar now, but
+                # persisting its id back to the booking failed - so the DB
+                # still points at the deleted original event id, and this
+                # new replacement event is untracked by the DB entirely.
+                # Manual fix: update the booking's google_event_id to the
+                # new event, not recreate anything.
+                logger.critical(
+                    "Recreated Calendar event %s for booking %s after a cancellation DB failure, but failed "
+                    "to persist its id - the booking's DB row still points at the deleted original event %s "
+                    "while a live, untracked replacement event %s now exists on Calendar - requires manual "
+                    "reconciliation to update the booking's google_event_id.",
+                    restored_event_id,
+                    booking.id,
+                    old_event_id,
+                    restored_event_id,
+                )
         raise HTTPException(status_code=500, detail="Cancellation could not be saved. Please try again.") from None
 
     return BookingResponse(
