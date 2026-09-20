@@ -65,7 +65,7 @@ conversation itself; there's no separate session/memory store yet.
 | Script (agent-facing) | Backend endpoint | Purpose |
 |---|---|---|
 | `resolve_customer.py --phone [--name]` | `POST /customers/resolve` | find-or-create by phone, never by name - returns `needs_name` rather than erroring when a new phone has no name yet |
-| `get_business_info.py --business` | `GET /businesses/{id}` | name, address, hours, services (with `price_from`), add-ons (priced extras, not independently bookable), credentials/policy blurb - the only source for these facts |
+| `get_business_info.py --business` | `GET /businesses/{id}` | name, address, hours, services (with `price_from`), add-ons (priced extras, not independently bookable), credentials/policy blurb, `max_advance_days` - the only source for these facts |
 | `search_availability.py --business --service --date [--period]` | `POST /availability/search` | real slots, Calendar-checked |
 | `create_booking.py --business --customer_id --service --start` | `POST /bookings` | recheck against the same slot logic as availability search + Calendar event + DB row |
 | `list_bookings.py --business --customer_id` | `GET /customers/{id}/bookings?business_id=` | upcoming confirmed bookings for *this business only* - what a reschedule/cancel flow needs to show |
@@ -93,6 +93,10 @@ Calendar - the agent has no direct database or Calendar credentials of its own.
   earlier in the conversation is never trusted. The check and the create are still two separate
   calls, not one atomic operation, so a true simultaneous race is possible in principle; see
   DEVELOPMENT.md "Cautions" for why that's an accepted gap for now, not an oversight.
+- **Advance-booking window enforced once, applied everywhere.** `BusinessProfile.max_advance_days`
+  (e.g. "up to 3 months ahead") is checked by one shared function (`_exceeds_advance_window`),
+  called identically from availability search, booking, and reschedule - never left to the LLM to
+  reason about date arithmetic itself. `None` means no limit.
 - **Fail closed on Calendar/DB errors.** Calendar failures return `502` (never "confirmed" or
   "cancelled"); a Calendar-event-created-but-DB-write-failed race deletes the orphaned event
   rather than leaving a phantom booking. Cancellation deletes the Calendar event *before*

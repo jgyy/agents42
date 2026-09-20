@@ -288,6 +288,8 @@
     {% endif %}
 
     {% if profile.pricing_note %}<p class="desc">{{ profile.pricing_note }}</p>{% endif %}
+    {% if profile.max_advance_days %}<p class="desc">Appointments can be booked up to
+      {{ profile.max_advance_days }} days ahead.</p>{% endif %}
 
     <p class="desc" style="margin-top: 0.75rem;">Editing coming later - for now, ask a developer to
       update this business's YAML profile and redeploy.</p>

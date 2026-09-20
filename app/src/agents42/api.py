@@ -176,6 +176,19 @@ def _busy_query_window(date_: date_type, hours, buffer_minutes: int, tz: ZoneInf
     return day_start - buffer, day_end + buffer
 
 
+def _exceeds_advance_window(date_: date_type, profile) -> bool:
+    """True if `date_` is further ahead than this business takes bookings
+    for (BusinessProfile.max_advance_days) - e.g. "up to 3 months ahead
+    only". None means no limit. Shared by availability search, booking, and
+    reschedule so the window is enforced identically everywhere a date is
+    accepted, not just at search time.
+    """
+    if profile.max_advance_days is None:
+        return False
+    today = datetime.now(ZoneInfo(profile.timezone)).date()
+    return date_ > today + timedelta(days=profile.max_advance_days)
+
+
 # --- Business info -----------------------------------------------------------
 
 
@@ -205,6 +218,7 @@ class BusinessInfoResponse(BaseModel):
     opening_hours: dict[str, OpeningHoursResponse]
     about: str | None
     pricing_note: str | None
+    max_advance_days: int | None
 
 
 @app.get("/businesses/{business_id}", response_model=BusinessInfoResponse)
@@ -236,6 +250,7 @@ def get_business_info(business_id: str) -> BusinessInfoResponse:
         },
         about=profile.about,
         pricing_note=profile.pricing_note,
+        max_advance_days=profile.max_advance_days,
     )
 
 
@@ -246,6 +261,9 @@ def _compute_available_slots(profile, service, date_: date_type, period: str | N
     Raises CalendarError on failure rather than an HTTPException, so each
     caller can translate it into whatever response shape it needs.
     """
+    if _exceeds_advance_window(date_, profile):
+        return []  # further ahead than this business takes bookings for
+
     weekday = date_.strftime("%A").lower()
     hours = profile.opening_hours.get(weekday)
     if hours is None:
@@ -316,6 +334,12 @@ def create_booking(
 
     tz = ZoneInfo(profile.timezone)
     start = body.start.replace(tzinfo=tz) if body.start.tzinfo is None else body.start.astimezone(tz)
+
+    if _exceeds_advance_window(start.date(), profile):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Requested date is more than {profile.max_advance_days} days in advance",
+        )
 
     weekday = start.strftime("%A").lower()
     hours = profile.opening_hours.get(weekday)
@@ -498,6 +522,12 @@ def _reschedule_booking_core(
             end=own_end.isoformat(),
             status=booking.status,
             google_event_id=booking.google_event_id,
+        )
+
+    if _exceeds_advance_window(new_start.date(), profile):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Requested date is more than {profile.max_advance_days} days in advance",
         )
 
     weekday = new_start.strftime("%A").lower()

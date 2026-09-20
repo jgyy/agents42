@@ -52,6 +52,7 @@ class BusinessProfile(BaseModel):
     slot_interval_minutes: int = 60
     about: str | None = None  # credentials/qualifications/appointment-policy blurb, relayed verbatim
     pricing_note: str | None = None  # e.g. "exact cost to be advised" - shown alongside price_from figures
+    max_advance_days: int | None = None  # None = no limit; e.g. 90 for "up to 3 months ahead"
 
 
 class UnknownBusinessError(LookupError):

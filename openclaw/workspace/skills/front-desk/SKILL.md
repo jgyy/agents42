@@ -131,7 +131,11 @@ above, which handles everything before this point).
    `scripts/search_availability.py --business <business_id> --service <service> --date <YYYY-MM-DD> [--period morning|afternoon|evening] --json`
    - Present the returned slots plainly (e.g. "1. 1:00-3:00 PM  2. 4:00-6:00 PM").
    - If `"slots": []`, say nothing is available then and ask if they'd like
-     another date - do not suggest times yourself.
+     another date - do not suggest times yourself. Exception: if
+     `get_business_info.py`'s `max_advance_days` is set and the requested date is
+     clearly beyond it (e.g. they asked for something 6 months out when the
+     limit is ~3 months), say so plainly instead of the generic "nothing
+     available" - that's a policy limit, not a fully-booked day.
    - If the customer asks about a different date, re-run the search for that
      date. Never reuse slots from an earlier search for a different date.
 

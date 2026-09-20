@@ -71,3 +71,8 @@ optional_customer_fields:
   - notes
 
 slot_interval_minutes: 60
+
+# Appointments can be made up to 3 months in advance. Stored in days (not
+# calendar months) since all the scheduling code already works in plain
+# timedeltas - 90 is used as the practical equivalent of "3 months".
+max_advance_days: 90
