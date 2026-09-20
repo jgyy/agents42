@@ -119,4 +119,6 @@ business profile from the dashboard - see AGENTS42.md "Not in this slice".
 - [DEVELOPMENT.md](DEVELOPMENT.md) - contributor/build workflow, testing levels.
 - [DEPLOYMENT.md](DEPLOYMENT.md) - the live AWS instance: details, redeploy procedure, gotchas.
 - `docs/2026-09-05-agents42-proposal.md` - the official hackathon proposal.
+- `docs/2026-09-20-owner-dashboard-decision.md` - why the owner dashboard was built before an
+  owner AI agent, and how they fit together architecturally.
 - `docs/2026-08-27-sme-*.md` - pre-kickoff brainstorm/action-plan (historical context).
