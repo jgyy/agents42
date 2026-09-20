@@ -5,6 +5,7 @@ must stay business-agnostic so a new business is "add one YAML file", not
 "edit the core".
 """
 
+import re
 from datetime import time
 from pathlib import Path
 
@@ -42,11 +43,20 @@ class UnknownBusinessError(LookupError):
     pass
 
 
+# business_id arrives off the wire (URL path / JSON body) and is used to build
+# a filesystem path, so it must be a plain slug - never "../x", never a nested
+# path, never a glob. Anything else is treated as "no such business".
+_BUSINESS_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
 class InvalidBusinessProfileError(ValueError):
     pass
 
 
 def load_business_profile(business_id: str, businesses_dir: Path | None = None) -> BusinessProfile:
+    if not _BUSINESS_ID_PATTERN.fullmatch(business_id or ""):
+        raise UnknownBusinessError(f"No business profile found for {business_id!r} (not a valid business id)")
+
     directory = businesses_dir or settings.businesses_dir
     path = Path(directory) / f"{business_id}.yaml"
     if not path.exists():

@@ -48,7 +48,11 @@ class FakeCalendarClient:
     def get_busy_periods(self, calendar_id, start, end):
         if self.fail_get_busy:
             raise CalendarError("simulated calendar outage")
-        return self.busy
+        # Like Google's freebusy API, only return periods that intersect the
+        # requested window - a fake that ignores the window would hide bugs
+        # where the caller asks for too narrow a range.
+        self.last_query = (start, end)
+        return [b for b in self.busy if b.start < end and start < b.end]
 
     def create_event(self, calendar_id, summary, start, end, description=""):
         if self.fail_create:
@@ -166,6 +170,77 @@ def test_availability_search_excludes_busy_period(client, fake_calendar):
     slots = response.json()["slots"]
     assert len(slots) > 0
     assert all("10:00" not in s["start"] and "11:00" not in s["start"] for s in slots)
+
+
+def test_availability_search_respects_buffer_around_event_before_opening(client, fake_calendar):
+    """An event that ends inside the turnaround buffer *before* opening time
+    must still block the first slot. The free/busy query has to be widened by
+    the buffer on both sides, or Calendar never reports that event at all.
+    """
+    tz = ZoneInfo("Asia/Singapore")
+    opening = DEMO_PROFILE.opening_hours["friday"].open
+    turnaround = DEMO_PROFILE.services["full_grooming"].turnaround_minutes
+    day_open = dt_module.datetime.combine(FRIDAY, opening, tzinfo=tz)
+    # Ends 15 minutes before opening - well inside the turnaround buffer.
+    fake_calendar.busy = [BusyPeriod(start=day_open - timedelta(hours=1), end=day_open - timedelta(minutes=15))]
+
+    response = client.post(
+        "/availability/search",
+        json={"business_id": "demo-groomer", "service": "full_grooming", "date": FRIDAY.isoformat()},
+    )
+    assert response.status_code == 200, response.text
+    starts = [dt_module.datetime.fromisoformat(s["start"]) for s in response.json()["slots"]]
+    assert day_open not in starts, "first slot offered despite an event inside the turnaround buffer"
+    assert day_open + timedelta(minutes=turnaround) in starts or not starts
+
+    queried_start, queried_end = fake_calendar.last_query
+    assert queried_start <= day_open - timedelta(minutes=turnaround)
+
+
+def test_availability_search_respects_buffer_around_event_after_closing(client, fake_calendar):
+    tz = ZoneInfo("Asia/Singapore")
+    closing = DEMO_PROFILE.opening_hours["friday"].close
+    duration = DEMO_PROFILE.services["full_grooming"].duration_minutes
+    day_close = dt_module.datetime.combine(FRIDAY, closing, tzinfo=tz)
+    # Starts 15 minutes after closing - inside the buffer of the last slot.
+    fake_calendar.busy = [BusyPeriod(start=day_close + timedelta(minutes=15), end=day_close + timedelta(hours=1))]
+
+    response = client.post(
+        "/availability/search",
+        json={"business_id": "demo-groomer", "service": "full_grooming", "date": FRIDAY.isoformat()},
+    )
+    assert response.status_code == 200, response.text
+    starts = [dt_module.datetime.fromisoformat(s["start"]) for s in response.json()["slots"]]
+    assert day_close - timedelta(minutes=duration) not in starts
+
+
+def test_booking_rejects_slot_inside_buffer_of_event_before_opening(client, fake_calendar):
+    customer = resolve_customer(client)
+    tz = ZoneInfo("Asia/Singapore")
+    day_open = dt_module.datetime.combine(FRIDAY, DEMO_PROFILE.opening_hours["friday"].open, tzinfo=tz)
+    fake_calendar.busy = [BusyPeriod(start=day_open - timedelta(hours=1), end=day_open - timedelta(minutes=15))]
+
+    response = client.post(
+        "/bookings",
+        json={
+            "business_id": "demo-groomer",
+            "customer_id": customer["id"],
+            "service": "full_grooming",
+            "start": day_open.isoformat(),
+        },
+    )
+    assert response.status_code == 409, response.text
+    assert fake_calendar.created_events == []
+
+
+def test_business_id_with_path_traversal_is_rejected(client):
+    response = client.get("/businesses/..%2F..%2Fbusinesses%2Fdemo-groomer")
+    assert response.status_code in (404, 422)
+    response = client.post(
+        "/availability/search",
+        json={"business_id": "../businesses/demo-groomer", "service": "full_grooming", "date": FRIDAY.isoformat()},
+    )
+    assert response.status_code in (404, 422), response.text
 
 
 def test_availability_search_returns_empty_when_closed(client):
