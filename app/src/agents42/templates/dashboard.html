@@ -114,8 +114,7 @@
   <p class="desc">Sometimes a customer asks for something your AI assistant isn't allowed to decide on its
     own - a discount, a refund, a complaint, or a request it just isn't sure how to handle safely.
     When that happens, it tells the customer you'll follow up personally, and the request lands
-    here so you don't have to go searching WhatsApp for it. Check this section first - it's what
-    actually needs you.</p>
+    here so you don't have to go searching WhatsApp for it.</p>
   <div class="panel">
     {% for e in open_escalations %}
       <div class="escalation">
@@ -230,9 +229,7 @@
 
 <section id="customers" class="area">
   <h2>Customers</h2>
-  <p class="desc">Everyone who has ever booked with you, in one searchable list. Click a name to see
-    their phone number, any notes on file, and their full booking history with you - handy if a
-    regular calls and you want to remind yourself what they usually come in for.</p>
+  <p class="desc">Searchable customer list. Click a name to see their phone number, any notes on file, and their booking history with you.</p>
   <div class="panel">
     <form class="customer-search-form" method="get" action="/#customers">
       <input type="text" name="customer_q" placeholder="Search name or phone…" value="{{ customer_q or '' }}">
@@ -254,10 +251,8 @@
 
 <section id="business" class="area">
   <h2>Business</h2>
-  <p class="desc">This is exactly what your AI assistant tells customers when they ask about your
-    hours, services, or how long something takes - so it doubles as a quick way to check "is this
-    actually right?" If your hours or prices have changed and this still shows the old ones,
-    that's what customers are hearing too.</p>
+  <p class="desc">Business info that your AI assistant tells customers when they ask about your
+    hours, services, or how long something takes.</p>
   <div class="panel">
     <h3>{{ profile.name }}</h3>
     {% if profile.address %}<p>📍 {{ profile.address }}</p>{% endif %}
@@ -283,9 +278,7 @@
 
 <section id="activity" class="area">
   <h2>Activity</h2>
-  <p class="desc">A quiet history log - bookings that were recently cancelled or moved, and requests
-    you've already taken care of. Nothing here needs anything from you; it's just here so you can
-    look back if a customer mentions something and you want to check what happened.</p>
+  <p class="desc">History log. You can look back if a customer mentions something and you want to check what happened.</p>
 
   <div class="panel">
     <h3>Recently cancelled / changed</h3>
