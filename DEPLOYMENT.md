@@ -101,13 +101,18 @@ public - a direct message, not a public channel.
   The customer-facing `app` and `postgres` ports are bound to `127.0.0.1` only (verified
   unreachable from the public internet). Real random Postgres password generated on first deploy,
   not the `change-me` placeholder. `owner-dashboard` is the one deliberate exception - see below.
-- **Owner dashboard**, port 8091, gated by `OWNER_DASHBOARD_PASSWORD` (HTTP Basic Auth) rather
-  than network isolation, since the owner needs to reach it from a browser. **Requires a manual
-  Lightsail firewall rule** - not done via SSH: instance page -> Networking tab -> IPv4 Firewall
-  -> Add rule -> Custom TCP, port 8091 (restrict the source to the owner's known IP if they have a
-  stable one; otherwise this is plain HTTP open to whoever finds the port - see DEVELOPMENT.md
-  "Owner dashboard" for the accepted limitations). Ask a developer for the dashboard URL and
-  password rather than guessing - not published here, this repo is public.
+- **Owner dashboard**, port 8091, gated by `OWNER_DASHBOARD_PASSWORD` (HTTP Basic Auth). Two ways
+  to actually reach it - see DEVELOPMENT.md "Owner dashboard" for the full comparison:
+  1. **Direct HTTP** - requires a manual Lightsail firewall rule (not done via SSH): instance page
+     -> Networking tab -> IPv4 Firewall -> Add rule -> Custom TCP, port 8091 (restrict the source
+     to the owner's known IP if they have a stable one; otherwise this is plain HTTP open to
+     whoever finds the port).
+  2. **SSH tunnel** (`ssh -L 8091:localhost:8091 ...`) - no firewall rule needed, traffic stays
+     inside the already-open SSH connection instead of a new public port. Preferred for a
+     developer/teammate checking the dashboard; direct HTTP is more about the owner themselves
+     being able to just open a URL without needing SSH access at all.
+  Ask a developer for the dashboard URL/IP and password rather than guessing - not published here,
+  this repo is public.
 - **OpenClaw**, installed natively (not in Docker - see DEVELOPMENT.md), running as a systemd user
   service (`openclaw-gateway`) with lingering enabled so it survives SSH logout and reboots.
 - **`front-desk` skill**, installed from the repo, pointed at the local backend

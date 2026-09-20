@@ -171,11 +171,28 @@ the main app):
 uvicorn agents42.owner_api:app --port 8091
 ```
 
-**Opening it in a browser**: go to `http://localhost:8091/` (local dev) - the browser will prompt
+**Opening it in a browser (local dev)**: go to `http://localhost:8091/` - the browser will prompt
 for a username/password; any username works, the password is whatever `OWNER_DASHBOARD_PASSWORD`
-is set to in `.env`. On the deployed AWS instance, it's `http://<instance-static-ip>:8091/` - ask
-a developer for the IP and password (not published here, this repo is public), and see
-DEPLOYMENT.md for the one-time Lightsail firewall step that makes the port reachable at all.
+is set to in `.env`.
+
+**On the deployed AWS instance, there are two ways to reach it** - pick whichever fits:
+
+1. **Direct HTTP** (what's set up now): `http://<instance-static-ip>:8091/` - ask a developer for
+   the IP and password (not published here, this repo is public). Requires the one-time Lightsail
+   firewall rule opening port 8091 (see DEPLOYMENT.md) - without it, this times out rather than
+   reaching the server at all. This is the plain-HTTP path with the documented limitations above
+   (no TLS, credentials and customer PII travel unencrypted) - fine for a demo, not for anything
+   beyond it.
+2. **SSH tunnel** (no firewall rule needed, encrypted end-to-end via SSH instead of Basic Auth
+   over plain HTTP): from a machine with SSH access to the instance (see DEPLOYMENT.md "Giving a
+   teammate SSH access"),
+   ```bash
+   ssh -i ~/.ssh/LightsailDefaultKey-ap-southeast-1.pem -L 8091:localhost:8091 ubuntu@<instance-static-ip>
+   ```
+   then open `http://localhost:8091/` in a browser on *your own* machine - the browser still
+   prompts for the dashboard's Basic Auth password (the tunnel doesn't replace that, it just
+   avoids exposing the port publicly at all). Keep the SSH session open for as long as you want
+   the tunnel to work.
 
 **Auth**: HTTP Basic, single shared password, any username - matches the product decision (one
 owner, not per-user accounts). The server refuses to start at all if
