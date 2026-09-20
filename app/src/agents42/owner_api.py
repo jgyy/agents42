@@ -36,7 +36,7 @@ from agents42.api import (
 from agents42.config import settings
 from agents42.db import get_session, run_migrations
 from agents42.integrations.google_calendar import CalendarClient, CalendarError
-from agents42.models import BlockedSlot, Booking, Escalation
+from agents42.models import BlockedSlot, Booking, Customer, Escalation
 
 logger = logging.getLogger("agents42.owner_api")
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
@@ -86,6 +86,51 @@ def _to_business_tz(value: datetime, tz: ZoneInfo) -> datetime:
     return _as_aware(value, tz).astimezone(tz)
 
 
+def _customers_for_business(session: Session, business_id: str) -> list[Customer]:
+    """Only customers with at least one booking for *this* business - a
+    Customer row isn't itself business-scoped (same phone/customer_id can
+    have bookings with other agents42 businesses too, see AGENTS42.md), so
+    this is the boundary that keeps a different business's customers from
+    ever appearing here, same reasoning as every other business_id check in
+    this project.
+    """
+    return list(
+        session.scalars(
+            select(Customer).join(Booking, Booking.customer_id == Customer.id).where(Booking.business_id == business_id).distinct().order_by(Customer.name)
+        ).all()
+    )
+
+
+def _customer_summary(customer: Customer, business_id: str, tz: ZoneInfo) -> dict:
+    business_bookings = [b for b in customer.bookings if b.business_id == business_id]
+    business_bookings.sort(key=lambda b: _as_aware(b.start_time, tz), reverse=True)
+    last = business_bookings[0] if business_bookings else None
+    return {
+        "customer": customer,
+        "booking_count": len(business_bookings),
+        "last_booking_start": _to_business_tz(last.start_time, tz) if last else None,
+    }
+
+
+def _booking_history(customer: Customer, business_id: str, tz: ZoneInfo, now: datetime) -> list[dict]:
+    bookings = [b for b in customer.bookings if b.business_id == business_id]
+    bookings.sort(key=lambda b: _as_aware(b.start_time, tz), reverse=True)
+    history = []
+    for b in bookings:
+        start = _to_business_tz(b.start_time, tz)
+        if b.status == "cancelled":
+            display_status = "cancelled"
+        elif start < now:
+            # There's no separate "completed" status in the schema (only
+            # confirmed/cancelled) - derived here for display only, same
+            # documented-heuristic approach as "recent activity" above.
+            display_status = "completed"
+        else:
+            display_status = "upcoming"
+        history.append({"booking": b, "start": start, "end": _to_business_tz(b.end_time, tz), "display_status": display_status})
+    return history
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
@@ -98,6 +143,7 @@ def dashboard(
     level: str = "info",
     avail_date: date_type | None = None,
     avail_service: str | None = None,
+    customer_q: str | None = None,
     session: Session = Depends(get_session),
     calendar_client: CalendarClient = Depends(get_calendar_client),
 ):
@@ -130,11 +176,23 @@ def dashboard(
         .where(Escalation.business_id == business_id, Escalation.status == "open")
         .order_by(Escalation.created_at.desc())
     ).all()
+    resolved_escalations = session.scalars(
+        select(Escalation)
+        .where(Escalation.business_id == business_id, Escalation.status == "resolved")
+        .order_by(Escalation.created_at.desc())
+        .limit(20)
+    ).all()
     blocked_slots = session.scalars(
         select(BlockedSlot)
         .where(BlockedSlot.business_id == business_id, BlockedSlot.end_time >= now)
         .order_by(BlockedSlot.start_time)
     ).all()
+
+    all_customers = _customers_for_business(session, business_id)
+    if customer_q:
+        needle = customer_q.strip().lower()
+        all_customers = [c for c in all_customers if needle in c.name.lower() or needle in c.phone.lower()]
+    customer_rows = [_customer_summary(c, business_id, tz) for c in all_customers]
 
     available_slots: list = []
     avail_error: str | None = None
@@ -157,16 +215,45 @@ def dashboard(
             "upcoming_bookings": upcoming_bookings,
             "recent_activity": recent_activity,
             "open_escalations": open_escalations,
+            "resolved_escalations": resolved_escalations,
             "blocked_slots": blocked_slots,
             "services": profile.services,
             "avail_date": avail_date,
             "avail_service": avail_service,
             "available_slots": available_slots,
             "avail_error": avail_error,
+            "customer_q": customer_q,
+            "customer_rows": customer_rows,
+            "today_count": len(today_bookings),
+            "upcoming_count": len(upcoming_bookings),
+            "attention_count": len(open_escalations),
+            "blocked_count": len(blocked_slots),
             "message": message,
             "level": level,
             "to_local": lambda d: _to_business_tz(d, tz),
         },
+    )
+
+
+@router.get("/customers/{customer_id}")
+def customer_detail(request: Request, customer_id: str, session: Session = Depends(get_session)):
+    business_id = settings.owner_dashboard_business_id
+    profile = _load_profile(business_id)
+    tz = ZoneInfo(profile.timezone)
+
+    customer = session.get(Customer, _parse_uuid(customer_id, field="customer_id"))
+    history = _booking_history(customer, business_id, tz, datetime.now(tz)) if customer else []
+    if customer is None or not history:
+        # No bookings with this business at all - either a bad id, or a
+        # customer who only has bookings with a *different* business (same
+        # phone/customer_id, different business_id - see
+        # _customers_for_business) - same 404 either way, don't distinguish.
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    return templates.TemplateResponse(
+        request,
+        "customer_detail.html",
+        {"profile": profile, "customer": customer, "history": history},
     )
 
 

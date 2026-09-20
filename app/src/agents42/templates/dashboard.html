@@ -4,150 +4,283 @@
 <meta charset="utf-8">
 <title>{{ profile.name }} — Owner Dashboard</title>
 <style>
-  body { font-family: system-ui, sans-serif; margin: 0; padding: 1.5rem; background: #f7f7f5; color: #222; }
-  h1 { margin-top: 0; }
-  h2 { margin-bottom: 0.5rem; }
-  h3 { margin-bottom: 0.25rem; font-size: 0.95rem; color: #555; }
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 0 0 3rem; background: #f7f7f5; color: #222; }
+  a { color: #245; }
+  header.page { background: #fff; border-bottom: 1px solid #ddd; padding: 1rem 1.5rem; }
+  header.page h1 { margin: 0; font-size: 1.4rem; }
+  header.page .subtitle { color: #777; font-size: 0.9rem; }
+
+  .warning-banner { background: #fff4e0; color: #7a4a00; border-bottom: 1px solid #f0c987; padding: 0.6rem 1.5rem; font-size: 0.9rem; }
+
+  nav.tabs { display: flex; gap: 1.25rem; background: #fff; border-bottom: 1px solid #ddd; padding: 0 1.5rem; position: sticky; top: 0; z-index: 1; flex-wrap: wrap; }
+  nav.tabs a { display: inline-block; padding: 0.6rem 0; color: #444; text-decoration: none; font-size: 0.9rem; }
+  nav.tabs a:hover { color: #000; }
+
+  .stats { display: flex; gap: 1rem; padding: 1rem 1.5rem 0; flex-wrap: wrap; }
+  .stat { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 0.75rem 1.25rem; min-width: 6rem; text-align: center; }
+  .stat .n { font-size: 1.6rem; font-weight: 700; }
+  .stat .label { font-size: 0.75rem; color: #777; text-transform: uppercase; letter-spacing: 0.03em; }
+  .stat.attention .n { color: #a33; }
+
+  main { padding: 0 1.5rem; }
+  section.area { scroll-margin-top: 3rem; margin-top: 1.5rem; }
+  section.area h2 { margin-bottom: 0.1rem; }
+  section.area > .desc { color: #777; font-size: 0.85rem; margin-top: 0; margin-bottom: 0.75rem; }
+
   .panel { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
-  .booking, .escalation, .blocked { border-bottom: 1px solid #eee; padding: 0.5rem 0; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
-  .booking:last-child, .escalation:last-child, .blocked:last-child { border-bottom: none; }
+  .panel h3 { margin-bottom: 0.25rem; font-size: 0.95rem; color: #555; }
+
+  .booking, .escalation, .blocked, .customer-row { border-bottom: 1px solid #eee; padding: 0.5rem 0; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+  .booking:last-child, .escalation:last-child, .blocked:last-child, .customer-row:last-child { border-bottom: none; }
   .booking .when { font-weight: 600; min-width: 7rem; }
-  .booking .who { color: #555; }
+  .who { color: #555; }
+  .who a { color: inherit; }
+
   .status { font-size: 0.8rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: #eee; }
   .status-cancelled { background: #fde2e2; color: #a33; }
+
   form.inline { display: inline-flex; gap: 0.3rem; align-items: center; margin: 0; }
   input, select, button { font: inherit; padding: 0.25rem 0.4rem; }
-  button { cursor: pointer; }
-  .flash { padding: 0.6rem 1rem; border-radius: 6px; margin-bottom: 1rem; }
+  button { cursor: pointer; border: 1px solid #ccc; border-radius: 4px; background: #f4f4f2; }
+  button.primary { background: #245; color: #fff; border-color: #245; }
+  button.danger { background: #fff; color: #a33; border-color: #d99; }
+  button.danger:hover { background: #fde2e2; }
+
+  .flash { padding: 0.6rem 1rem; border-radius: 6px; margin: 1rem 1.5rem 0; }
   .flash-info { background: #e2f0fd; color: #245; }
   .flash-error { background: #fde2e2; color: #822; }
   .empty { color: #888; font-style: italic; }
-  .avail-form, .block-form { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem; }
+  .avail-form, .block-form, .customer-search-form { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem; }
   .slots { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0; list-style: none; }
   .slots li { background: #eef; padding: 0.2rem 0.5rem; border-radius: 4px; }
+  .escalation .reason { font-weight: 600; }
+  .escalation .detail { color: #555; }
 </style>
 </head>
 <body>
 
+<header class="page">
+  <h1>{{ profile.name }}</h1>
+  <div class="subtitle">Owner Dashboard</div>
+</header>
+
+<div class="warning-banner">
+  ⚠ DEMO ENVIRONMENT — this dashboard is served over plain HTTP. Do not use it over an untrusted
+  network. A production deployment should use HTTPS via a domain and a reverse proxy (e.g. Caddy).
+</div>
+
+<nav class="tabs">
+  <a href="#overview">Overview</a>
+  <a href="#schedule">Schedule</a>
+  <a href="#customers">Customers</a>
+  <a href="#business">Business</a>
+  <a href="#activity">Activity</a>
+</nav>
+
 {% if message %}<div class="flash flash-{{ level }}">{{ message }}</div>{% endif %}
 
-<h1>{{ profile.name }}</h1>
+<div class="stats">
+  <div class="stat"><div class="n">{{ today_count }}</div><div class="label">Today</div></div>
+  <div class="stat"><div class="n">{{ upcoming_count }}</div><div class="label">Upcoming</div></div>
+  <div class="stat attention"><div class="n">{{ attention_count }}</div><div class="label">Attention</div></div>
+  <div class="stat"><div class="n">{{ blocked_count }}</div><div class="label">Blocked</div></div>
+</div>
 
-<section class="panel">
-  <h2>Today</h2>
-  {% for b in today_bookings %}
-    <div class="booking">
-      <span class="when">{{ to_local(b.start_time).strftime('%H:%M') }}–{{ to_local(b.end_time).strftime('%H:%M') }}</span>
-      <span>{{ b.service }}</span>
-      <span class="who">{{ b.customer.name }} ({{ b.customer.phone }})</span>
-      <form class="inline" method="post" action="/bookings/{{ b.id }}/cancel" onsubmit="return confirm('Cancel this booking?')">
-        <button type="submit">Cancel</button>
-      </form>
-      <form class="inline" method="post" action="/bookings/{{ b.id }}/reschedule">
-        <input type="datetime-local" name="new_start" required>
-        <button type="submit">Reschedule</button>
-      </form>
-    </div>
-  {% else %}
-    <p class="empty">Nothing booked today.</p>
-  {% endfor %}
-</section>
+<main>
 
-<section class="panel">
-  <h2>Upcoming &amp; Recent Activity</h2>
-  <h3>Upcoming</h3>
-  {% for b in upcoming_bookings %}
-    <div class="booking">
-      <span class="when">{{ to_local(b.start_time).strftime('%a %d %b, %H:%M') }}</span>
-      <span>{{ b.service }}</span>
-      <span class="who">{{ b.customer.name }} ({{ b.customer.phone }})</span>
-      <form class="inline" method="post" action="/bookings/{{ b.id }}/cancel" onsubmit="return confirm('Cancel this booking?')">
-        <button type="submit">Cancel</button>
-      </form>
-      <form class="inline" method="post" action="/bookings/{{ b.id }}/reschedule">
-        <input type="datetime-local" name="new_start" required>
-        <button type="submit">Reschedule</button>
-      </form>
-    </div>
-  {% else %}
-    <p class="empty">Nothing upcoming.</p>
-  {% endfor %}
-
-  <h3>Recently cancelled / changed</h3>
-  {% for b in recent_activity %}
-    <div class="booking">
-      <span class="when">{{ to_local(b.start_time).strftime('%a %d %b, %H:%M') }}</span>
-      <span>{{ b.service }}</span>
-      <span class="who">{{ b.customer.name }} ({{ b.customer.phone }})</span>
-      <span class="status {% if b.status == 'cancelled' %}status-cancelled{% endif %}">{{ b.status }}</span>
-    </div>
-  {% else %}
-    <p class="empty">No recent changes.</p>
-  {% endfor %}
-</section>
-
-<section class="panel">
+<section id="overview" class="area">
   <h2>Attention</h2>
-  {% for e in open_escalations %}
-    <div class="escalation">
-      <span>{{ e.created_at.strftime('%d %b, %H:%M') }}</span>
-      <span>⚠ {{ e.reason }}{% if e.detail %} — {{ e.detail }}{% endif %}</span>
-      {% if e.customer %}<span class="who">{{ e.customer.name }} ({{ e.customer.phone }})</span>{% endif %}
-      <form class="inline" method="post" action="/escalations/{{ e.id }}/resolve">
-        <button type="submit">Resolve</button>
-      </form>
-    </div>
-  {% else %}
-    <p class="empty">Nothing needs attention.</p>
-  {% endfor %}
+  <p class="desc">Requests the agent couldn't safely handle itself and needs you to follow up on.</p>
+  <div class="panel">
+    {% for e in open_escalations %}
+      <div class="escalation">
+        <span>{{ e.created_at.strftime('%d %b, %H:%M') }}</span>
+        <span class="reason">⚠ {{ e.reason }}</span>
+        {% if e.detail %}<span class="detail">— {{ e.detail }}</span>{% endif %}
+        {% if e.customer %}<span class="who"><a href="/customers/{{ e.customer.id }}">{{ e.customer.name }}</a> (<a href="tel:{{ e.customer.phone }}">{{ e.customer.phone }}</a>)</span>{% endif %}
+        <form class="inline" method="post" action="/escalations/{{ e.id }}/resolve">
+          <button type="submit">Mark Resolved</button>
+        </form>
+      </div>
+    {% else %}
+      <p class="empty">Nothing needs attention right now.</p>
+    {% endfor %}
+  </div>
 </section>
 
-<section class="panel">
-  <h2>Availability &amp; Block Time</h2>
+<section id="schedule" class="area">
+  <h2>Schedule</h2>
+  <p class="desc">Today's and upcoming bookings, checking availability, and blocking off time.</p>
 
-  <form class="avail-form" method="get" action="/">
-    <input type="date" name="avail_date" value="{{ avail_date or '' }}">
-    <select name="avail_service">
-      <option value="">Select service…</option>
-      {% for key, svc in services.items() %}
-        <option value="{{ key }}" {% if key == avail_service %}selected{% endif %}>{{ svc.display_name or key }}</option>
-      {% endfor %}
-    </select>
-    <button type="submit">Show slots</button>
-  </form>
-  {% if avail_error %}<p class="flash flash-error">{{ avail_error }}</p>{% endif %}
-  {% if avail_date and avail_service and not avail_error %}
-    <ul class="slots">
-      {% for s in available_slots %}
-        <li>{{ s.start.strftime('%H:%M') }}–{{ s.end.strftime('%H:%M') }}</li>
+  <div class="panel">
+    <h3>Today</h3>
+    {% for b in today_bookings %}
+      <div class="booking">
+        <span class="when">{{ to_local(b.start_time).strftime('%H:%M') }}–{{ to_local(b.end_time).strftime('%H:%M') }}</span>
+        <span class="who"><a href="/customers/{{ b.customer.id }}">{{ b.customer.name }}</a> (<a href="tel:{{ b.customer.phone }}">{{ b.customer.phone }}</a>)</span>
+        <span>{{ b.service }}</span>
+        <form class="inline" method="post" action="/bookings/{{ b.id }}/reschedule">
+          <input type="datetime-local" name="new_start" required>
+          <button type="submit">Reschedule</button>
+        </form>
+        <form class="inline" method="post" action="/bookings/{{ b.id }}/cancel" onsubmit="return confirm('Cancel this booking?')">
+          <button type="submit" class="danger">Cancel</button>
+        </form>
+      </div>
+    {% else %}
+      <p class="empty">Nothing booked today.</p>
+    {% endfor %}
+  </div>
+
+  <div class="panel">
+    <h3>Upcoming</h3>
+    {% for b in upcoming_bookings %}
+      <div class="booking">
+        <span class="when">{{ to_local(b.start_time).strftime('%a %d %b, %H:%M') }}</span>
+        <span class="who"><a href="/customers/{{ b.customer.id }}">{{ b.customer.name }}</a> (<a href="tel:{{ b.customer.phone }}">{{ b.customer.phone }}</a>)</span>
+        <span>{{ b.service }}</span>
+        <form class="inline" method="post" action="/bookings/{{ b.id }}/reschedule">
+          <input type="datetime-local" name="new_start" required>
+          <button type="submit">Reschedule</button>
+        </form>
+        <form class="inline" method="post" action="/bookings/{{ b.id }}/cancel" onsubmit="return confirm('Cancel this booking?')">
+          <button type="submit" class="danger">Cancel</button>
+        </form>
+      </div>
+    {% else %}
+      <p class="empty">Nothing upcoming.</p>
+    {% endfor %}
+  </div>
+
+  <div class="panel">
+    <h3>Check availability</h3>
+    <form class="avail-form" method="get" action="/">
+      <input type="date" name="avail_date" value="{{ avail_date or '' }}">
+      <select name="avail_service">
+        <option value="">Select service…</option>
+        {% for key, svc in services.items() %}
+          <option value="{{ key }}" {% if key == avail_service %}selected{% endif %}>{{ svc.display_name or key }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="primary">Check Availability</button>
+    </form>
+    {% if avail_error %}<p class="flash flash-error">{{ avail_error }}</p>{% endif %}
+    {% if avail_date and avail_service and not avail_error %}
+      <ul class="slots">
+        {% for s in available_slots %}
+          <li>{{ s.start.strftime('%H:%M') }}–{{ s.end.strftime('%H:%M') }}</li>
+        {% else %}
+          <li class="empty">No free slots that day.</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h3>Block time</h3>
+    <p class="desc">Mark time when the business cannot accept appointments (a break, a day off).</p>
+    <form class="block-form" method="post" action="/block-time">
+      <input type="datetime-local" name="start" required>
+      <span>to</span>
+      <input type="datetime-local" name="end" required>
+      <input type="text" name="reason" placeholder="Reason (optional)">
+      <button type="submit" class="primary">Block Time</button>
+    </form>
+    {% for bl in blocked_slots %}
+      <div class="blocked">
+        <span class="when">{{ to_local(bl.start_time).strftime('%a %d %b, %H:%M') }}–{{ to_local(bl.end_time).strftime('%H:%M') }}</span>
+        {% if bl.reason %}<span class="who">{{ bl.reason }}</span>{% endif %}
+        <form class="inline" method="post" action="/blocked-slots/{{ bl.id }}/unblock" onsubmit="return confirm('Remove this block?')">
+          <button type="submit" class="danger">Unblock</button>
+        </form>
+      </div>
+    {% else %}
+      <p class="empty">Nothing blocked.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<section id="customers" class="area">
+  <h2>Customers</h2>
+  <p class="desc">Everyone who has booked with this business - click a name for their full history.</p>
+  <div class="panel">
+    <form class="customer-search-form" method="get" action="/#customers">
+      <input type="text" name="customer_q" placeholder="Search name or phone…" value="{{ customer_q or '' }}">
+      <button type="submit">Search</button>
+    </form>
+    {% for row in customer_rows %}
+      <div class="customer-row">
+        <span class="who"><a href="/customers/{{ row.customer.id }}">{{ row.customer.name }}</a></span>
+        <span><a href="tel:{{ row.customer.phone }}">{{ row.customer.phone }}</a></span>
+        <span>{{ row.booking_count }} booking{{ 's' if row.booking_count != 1 else '' }}</span>
+        {% if row.last_booking_start %}<span>Last: {{ row.last_booking_start.strftime('%d %b %Y') }}</span>{% endif %}
+        <a href="/customers/{{ row.customer.id }}">View →</a>
+      </div>
+    {% else %}
+      <p class="empty">No customers match.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<section id="business" class="area">
+  <h2>Business</h2>
+  <p class="desc">What your AI front desk currently believes about your business - read-only for now.</p>
+  <div class="panel">
+    <h3>{{ profile.name }}</h3>
+    {% if profile.address %}<p>📍 {{ profile.address }}</p>{% endif %}
+    <p>🕒
+      {% for day, hours in profile.opening_hours.items() %}
+        {{ day.capitalize() }} {{ hours.open.strftime('%H:%M') }}–{{ hours.close.strftime('%H:%M') }}{% if not loop.last %}, {% endif %}
       {% else %}
-        <li class="empty">No free slots that day.</li>
+        Closed every day
       {% endfor %}
-    </ul>
-  {% endif %}
-
-  <h3>Block time</h3>
-  <form class="block-form" method="post" action="/block-time">
-    <input type="datetime-local" name="start" required>
-    <span>to</span>
-    <input type="datetime-local" name="end" required>
-    <input type="text" name="reason" placeholder="Reason (optional)">
-    <button type="submit">Block</button>
-  </form>
-
-  <h3>Currently blocked</h3>
-  {% for bl in blocked_slots %}
-    <div class="blocked">
-      <span class="when">{{ to_local(bl.start_time).strftime('%a %d %b, %H:%M') }}–{{ to_local(bl.end_time).strftime('%H:%M') }}</span>
-      {% if bl.reason %}<span class="who">{{ bl.reason }}</span>{% endif %}
-      <form class="inline" method="post" action="/blocked-slots/{{ bl.id }}/unblock">
-        <button type="submit">Unblock</button>
-      </form>
-    </div>
-  {% else %}
-    <p class="empty">Nothing blocked.</p>
-  {% endfor %}
+    </p>
+    <h3>Services</h3>
+    {% for key, svc in services.items() %}
+      <div class="booking">
+        <span class="who">{{ svc.display_name or key }}</span>
+        <span>{{ svc.duration_minutes }} min</span>
+        {% if svc.turnaround_minutes %}<span>{{ svc.turnaround_minutes }} min turnaround</span>{% endif %}
+      </div>
+    {% endfor %}
+    <p class="desc" style="margin-top: 0.75rem;">Editing coming later - for now, ask a developer to
+      update this business's YAML profile and redeploy.</p>
+  </div>
 </section>
+
+<section id="activity" class="area">
+  <h2>Activity</h2>
+  <p class="desc">Supporting history: recently cancelled or changed bookings, and past escalations.</p>
+
+  <div class="panel">
+    <h3>Recently cancelled / changed</h3>
+    {% for b in recent_activity %}
+      <div class="booking">
+        <span class="when">{{ to_local(b.start_time).strftime('%a %d %b, %H:%M') }}</span>
+        <span class="who"><a href="/customers/{{ b.customer.id }}">{{ b.customer.name }}</a></span>
+        <span>{{ b.service }}</span>
+        <span class="status {% if b.status == 'cancelled' %}status-cancelled{% endif %}">{{ b.status }}</span>
+      </div>
+    {% else %}
+      <p class="empty">No recent changes.</p>
+    {% endfor %}
+  </div>
+
+  <div class="panel">
+    <h3>Resolved escalations</h3>
+    {% for e in resolved_escalations %}
+      <div class="escalation">
+        <span>{{ e.created_at.strftime('%d %b, %H:%M') }}</span>
+        <span class="reason">{{ e.reason }}</span>
+        {% if e.customer %}<span class="who">{{ e.customer.name }}</span>{% endif %}
+      </div>
+    {% else %}
+      <p class="empty">No resolved escalations yet.</p>
+    {% endfor %}
+  </div>
+</section>
+
+</main>
 
 </body>
 </html>

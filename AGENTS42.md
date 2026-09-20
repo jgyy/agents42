@@ -40,13 +40,15 @@ since none of these actions need an authority level different from booking itsel
 ## Owner dashboard (not the Owner Assistant Agent role)
 
 `app/src/agents42/owner_api.py` is a small server-rendered dashboard for the business owner -
-today's/upcoming bookings, customer details inline, a manual reschedule/cancel action, blocking
-off unavailable time, and an "Attention" queue of escalations. **This is a human-facing read/write
-UI, not an LLM agent** - no model is involved anywhere in it. Don't confuse it with the still-not-
-built Owner Assistant Agent role above; the dashboard exists precisely so the owner has a way to
-see and act on the same data an eventual Owner Assistant Agent would also need, without having to
-build that agent's own trust/authority model first. See DEVELOPMENT.md "Owner dashboard" for how
-to run it and its documented limitations (plain HTTP, single shared password, no CSRF protection).
+today's/upcoming bookings, a manual reschedule/cancel action, blocking off unavailable time, an
+"Attention" queue of escalations, a searchable customer directory with per-customer booking
+history, and a read-only view of the business profile the front-desk agent itself reads facts
+from. **This is a human-facing read/write UI, not an LLM agent** - no model is involved anywhere
+in it. Don't confuse it with the still-not-built Owner Assistant Agent role above; the dashboard
+exists precisely so the owner has a way to see and act on the same data an eventual Owner
+Assistant Agent would also need, without having to build that agent's own trust/authority model
+first. See DEVELOPMENT.md "Owner dashboard" for how to run it and its documented limitations
+(plain HTTP, single shared password, no CSRF protection, business profile editing not built yet).
 
 The `flag_attention.py` script (table below) is what makes escalations visible there at all -
 before it existed, the front-desk skill's escalation step was purely conversational text that

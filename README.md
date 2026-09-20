@@ -101,9 +101,10 @@ booking in place rather than creating a duplicate), and cancelling an existing b
 cancelled and removes its Calendar event). Verified end-to-end against the hackathon's own AWS
 Bedrock gateway through a real linked WhatsApp number. A small owner-facing dashboard is also
 implemented (`agents42.owner_api`) - today's/upcoming bookings, manual cancel/reschedule, blocking
-off unavailable time, and an escalation queue - see DEVELOPMENT.md "Owner dashboard". Not yet
-built: an owner-facing AI agent, multi-staff/location support - see AGENTS42.md "Not in this
-slice".
+off unavailable time, an escalation queue, a searchable customer directory with booking history,
+and a read-only view of the business profile the agent itself uses - see DEVELOPMENT.md "Owner
+dashboard". Not yet built: an owner-facing AI agent, multi-staff/location support, editing the
+business profile from the dashboard - see AGENTS42.md "Not in this slice".
 
 ## Docs
 

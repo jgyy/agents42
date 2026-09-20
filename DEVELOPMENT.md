@@ -133,15 +133,30 @@ restarts (see "AWS deployment" below) so you don't have to relink for every depl
 
 ## Owner dashboard
 
-A small server-rendered dashboard for the business owner - today's/upcoming bookings with
-customer details inline, manual reschedule/cancel, blocking off unavailable time, and an
-"Attention" queue of escalations the front-desk skill flags via `flag_attention.py`. Not an LLM
-agent - see AGENTS42.md "Owner dashboard" for how this relates to the still-not-built Owner
-Assistant Agent role.
+A small server-rendered dashboard for the business owner, one page with five anchor-linked
+sections: **Overview** (stat counts + the "Attention" queue of escalations, kept near the top
+deliberately - what needs the owner's action matters more than a history log), **Schedule**
+(today's/upcoming bookings with customer details inline, manual reschedule/cancel, checking
+availability, blocking off unavailable time), **Customers** (searchable directory - name/phone,
+booking count, last booking date - each linking to a detail page with full booking history),
+**Business** (read-only view of the same business profile - name, address, hours, services - the
+front-desk agent itself uses, so the owner can sanity-check "what does my AI currently believe
+about my business" without asking a developer), and **Activity** (recently cancelled/changed
+bookings and resolved-escalation history - supporting information, not what needs attention).
+Escalations get onto the Attention queue via `flag_attention.py` (see below). Not an LLM agent -
+see AGENTS42.md "Owner dashboard" for how this relates to the still-not-built Owner Assistant
+Agent role.
 
 Runs as its own service (`agents42.owner_api:app`), reusing the same built image as `app` (see
 `docker-compose.yml`) - it shares `api.py`'s models, session, Calendar client, and (notably) the
 reschedule/cancel Calendar+DB compensation logic directly, rather than reimplementing it.
+
+**Editing the business profile is deliberately not built yet** - the Business section is
+read-only, showing exactly what's in `businesses/<id>.yaml`. Changing hours/services/pricing still
+needs a developer to edit that file and redeploy. The plan is to add editing as a second step once
+the read-only view has been used for a while, with server-side validation (never letting the
+dashboard write YAML directly from an HTML form) - editing this data affects live scheduling
+logic, so it deserves more care than the mostly-CRUD booking/customer views above.
 
 ```bash
 cp .env.example .env    # set OWNER_DASHBOARD_PASSWORD and OWNER_DASHBOARD_BUSINESS_ID
@@ -155,6 +170,12 @@ the main app):
 ```bash
 uvicorn agents42.owner_api:app --port 8091
 ```
+
+**Opening it in a browser**: go to `http://localhost:8091/` (local dev) - the browser will prompt
+for a username/password; any username works, the password is whatever `OWNER_DASHBOARD_PASSWORD`
+is set to in `.env`. On the deployed AWS instance, it's `http://<instance-static-ip>:8091/` - ask
+a developer for the IP and password (not published here, this repo is public), and see
+DEPLOYMENT.md for the one-time Lightsail firewall step that makes the port reachable at all.
 
 **Auth**: HTTP Basic, single shared password, any username - matches the product decision (one
 owner, not per-user accounts). The server refuses to start at all if

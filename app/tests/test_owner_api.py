@@ -319,15 +319,21 @@ def test_escalation_created_via_customer_api_appears_in_dashboard(client, owner_
     assert customer["name"] in dashboard.text
 
 
-def test_resolve_escalation_marks_resolved_and_disappears_from_open_list(client, owner_client, test_engine):
+def test_resolve_escalation_marks_resolved_and_moves_to_activity(client, owner_client, test_engine):
     response = client.post("/escalations", json={"business_id": "demo-groomer", "reason": "complaint"})
     escalation_id = response.json()["id"]
+
+    dashboard_before = owner_client.get("/", auth=AUTH)
+    assert f"/escalations/{escalation_id}/resolve" in dashboard_before.text  # open - resolvable
 
     resolve = owner_client.post(f"/escalations/{escalation_id}/resolve", auth=AUTH)
     assert resolve.status_code == 303
 
-    dashboard = owner_client.get("/", auth=AUTH)
-    assert "complaint" not in dashboard.text
+    dashboard_after = owner_client.get("/", auth=AUTH)
+    # No longer actionable in Attention...
+    assert f"/escalations/{escalation_id}/resolve" not in dashboard_after.text
+    # ...but still visible as history under Activity, not vanished entirely.
+    assert "complaint" in dashboard_after.text
 
     with _session_for(test_engine)() as s:
         assert s.get(Escalation, uuid.UUID(escalation_id)).status == "resolved"
@@ -359,4 +365,89 @@ def test_escalation_unknown_booking_404(client):
             "reason": "x",
         },
     )
+    assert response.status_code == 404
+
+
+# --- Customers --------------------------------------------------------------
+
+
+def test_customer_appears_in_customers_section_with_booking_count(client, owner_client):
+    customer = resolve_customer(client)
+    create_booking(client, customer["id"])
+
+    response = owner_client.get("/", auth=AUTH)
+    assert customer["name"] in response.text
+    assert "1 booking" in response.text
+
+
+def _customers_section(html: str) -> str:
+    """Bookings for other customers legitimately appear elsewhere on the
+    page (Today/Upcoming aren't filtered by customer_q, only the Customers
+    section is) - scope search-result assertions to just that section
+    rather than the whole page.
+    """
+    return html.split('id="customers"')[1].split('id="business"')[0]
+
+
+def test_customer_search_filters_by_name_and_phone(client, owner_client):
+    sarah = resolve_customer(client, phone="91234567", name="Sarah Tan")
+    create_booking(client, sarah["id"])
+    john = resolve_customer(client, phone="90009999", name="John Lim")
+    create_booking(client, john["id"], date_=FRIDAY, business_id="demo-groomer")
+
+    by_name = _customers_section(owner_client.get("/", params={"customer_q": "Sarah"}, auth=AUTH).text)
+    assert "Sarah Tan" in by_name
+    assert "John Lim" not in by_name
+
+    by_phone = _customers_section(owner_client.get("/", params={"customer_q": "90009999"}, auth=AUTH).text)
+    assert "John Lim" in by_phone
+    assert "Sarah Tan" not in by_phone
+
+
+def test_customer_list_excludes_customer_with_only_a_different_businesss_booking(
+    client, owner_client, test_engine
+):
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+
+    with _session_for(test_engine)() as s:
+        row = s.get(Booking, uuid.UUID(booking["id"]))
+        row.business_id = "some-other-business"
+        s.commit()
+
+    response = owner_client.get("/", auth=AUTH)
+    assert customer["name"] not in response.text
+
+
+def test_customer_detail_shows_booking_history_with_display_status(client, owner_client, fake_calendar):
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+    client.post(f"/bookings/{booking['id']}/cancel", json={"customer_id": customer["id"], "business_id": "demo-groomer"})
+
+    response = owner_client.get(f"/customers/{customer['id']}", auth=AUTH)
+    assert response.status_code == 200
+    assert customer["name"] in response.text
+    assert customer["phone"] in response.text
+    assert "cancelled" in response.text
+
+
+def test_customer_detail_unknown_customer_404(owner_client):
+    response = owner_client.get("/customers/00000000-0000-0000-0000-000000000000", auth=AUTH)
+    assert response.status_code == 404
+
+
+def test_customer_detail_business_scoping_404(client, owner_client, test_engine):
+    """A customer who only has bookings with a *different* business must not
+    be viewable through this business's dashboard, even though the Customer
+    row itself exists (same reasoning as the customer list exclusion above).
+    """
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+
+    with _session_for(test_engine)() as s:
+        row = s.get(Booking, uuid.UUID(booking["id"]))
+        row.business_id = "some-other-business"
+        s.commit()
+
+    response = owner_client.get(f"/customers/{customer['id']}", auth=AUTH)
     assert response.status_code == 404
