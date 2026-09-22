@@ -1060,3 +1060,193 @@ def test_cancel_db_write_fails_and_recreate_db_persist_also_fails_does_not_crash
         row = verify_session.get(Booking, uuid.UUID(booking["id"]))
         assert row.status == "confirmed"  # DB never got the "cancelled" write
         assert row.google_event_id == "evt-1"  # still points at the deleted original, not the new "evt-2"
+
+
+# --- Timezone of DB-loaded datetimes in responses ---------------------------
+
+
+@pytest.mark.parametrize(
+    "loaded",
+    [
+        # SQLite: DateTime(timezone=True) reads back naive, wall-clock digits preserved.
+        dt_module.datetime(2026, 10, 2, 13, 0),
+        # Postgres (psycopg): TIMESTAMPTZ reads back aware, in the *connection's*
+        # zone - Etc/UTC in the stock postgres image, so 13:00+08:00 arrives as 05:00+00:00.
+        dt_module.datetime(2026, 10, 2, 5, 0, tzinfo=dt_module.timezone.utc),
+    ],
+    ids=["sqlite-naive", "postgres-aware-utc"],
+)
+def test_db_loaded_datetime_is_rendered_in_business_timezone(loaded):
+    """Every endpoint must speak the business's local time in the string the
+    agent relays to the customer, regardless of which backend the value
+    came from. A UTC-offset string is the same instant but the agent would
+    read "05:00" to a customer booked at 1pm.
+    """
+    from agents42.api import _as_aware
+
+    tz = ZoneInfo(DEMO_PROFILE.timezone)
+    rendered = _as_aware(loaded, tz).isoformat()
+    assert rendered == "2026-10-02T13:00:00+08:00"
+
+
+def test_reschedule_to_a_slot_overlapping_its_own_current_slot_succeeds(client, fake_calendar):
+    """A booking must not conflict with itself. Moving 09:00-11:00 to 10:00
+    on the same day is a real, common request ("can we push it back an
+    hour?") and the only thing occupying 10:00-11:00 is this very booking,
+    which is about to be moved. Before the fix this 409'd.
+    """
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])  # first slot of the day, 09:00-11:00
+    _mark_busy_like_the_real_calendar_would(fake_calendar, booking)
+
+    new_start = dt_module.datetime.fromisoformat(booking["start"]) + timedelta(hours=1)
+    response = client.post(
+        f"/bookings/{booking['id']}/reschedule",
+        json={"customer_id": customer["id"], "business_id": "demo-groomer", "new_start": new_start.isoformat()},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["start"] == new_start.isoformat()
+    assert fake_calendar.created_events == ["evt-1", "evt-2"]
+    assert fake_calendar.deleted_events == ["evt-1"]
+
+
+def test_reschedule_still_rejects_a_neighbour_merged_into_its_own_busy_range(client, fake_calendar):
+    """Google freebusy coalesces adjacent events: own 09:00-11:00 plus
+    someone else's 11:00-13:00 arrives as one 09:00-13:00 range. Excluding
+    the booking's own slot must not also hide that neighbour.
+    """
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+    own_start = dt_module.datetime.fromisoformat(booking["start"])
+    own_end = dt_module.datetime.fromisoformat(booking["end"])
+    fake_calendar.busy = [BusyPeriod(start=own_start, end=own_end + timedelta(hours=2))]
+
+    # 10:00-12:00 overlaps the neighbour's 11:00-13:00 - must still be refused.
+    new_start = own_start + timedelta(hours=1)
+    response = client.post(
+        f"/bookings/{booking['id']}/reschedule",
+        json={"customer_id": customer["id"], "business_id": "demo-groomer", "new_start": new_start.isoformat()},
+    )
+    assert response.status_code == 409
+    assert fake_calendar.created_events == ["evt-1"]
+
+
+# --- Availability search during a reschedule --------------------------------
+
+
+def _search(client, **extra):
+    return client.post(
+        "/availability/search",
+        json={"business_id": "demo-groomer", "service": "full_grooming", "date": FRIDAY.isoformat(), **extra},
+    )
+
+
+def _starts(response) -> list[str]:
+    return [s["start"][11:16] for s in response.json()["slots"]]
+
+
+def test_availability_search_can_carve_out_the_bookings_own_slot(client, fake_calendar):
+    """The reschedule flow offers the customer only what search returns.
+    Without telling search which booking is being moved, the booking's own
+    Calendar event (plus its turnaround buffer) hides the very slots that
+    reschedule_booking would accept - so "push it back an hour" could never
+    be offered. Before the fix, a 09:00-11:00 booking made 09:00, 10:00 and
+    11:00 vanish from search while reschedule to 10:00 returned 200.
+    """
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])  # first slot of the day, 09:00-11:00
+    _mark_busy_like_the_real_calendar_would(fake_calendar, booking)
+
+    plain = _search(client)
+    assert plain.status_code == 200, plain.text
+    assert "10:00" not in _starts(plain)  # a *new* booking really can't go there
+
+    excluded = _search(client, exclude_booking_id=booking["id"], customer_id=customer["id"])
+    assert excluded.status_code == 200, excluded.text
+    assert _starts(excluded) == ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00"]
+
+    # The slots search now offers are exactly the ones reschedule accepts.
+    new_start = dt_module.datetime.fromisoformat(booking["start"]) + timedelta(hours=1)
+    response = client.post(
+        f"/bookings/{booking['id']}/reschedule",
+        json={"customer_id": customer["id"], "business_id": "demo-groomer", "new_start": new_start.isoformat()},
+    )
+    assert response.status_code == 200, response.text
+
+
+def test_availability_search_carve_out_still_hides_a_neighbour_merged_into_own_range(client, fake_calendar):
+    """Same merged-range caveat as reschedule: own 09:00-11:00 coalesced with a
+    neighbour's 11:00-13:00 must still block 10:00-12:00 (and 11:00, and the
+    neighbour's buffer up to 14:00).
+    """
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+    own_start = dt_module.datetime.fromisoformat(booking["start"])
+    own_end = dt_module.datetime.fromisoformat(booking["end"])
+    fake_calendar.busy = [BusyPeriod(start=own_start, end=own_end + timedelta(hours=2))]
+
+    excluded = _search(client, exclude_booking_id=booking["id"], customer_id=customer["id"])
+    assert excluded.status_code == 200, excluded.text
+    assert _starts(excluded) == ["14:00", "15:00", "16:00"]
+
+
+def test_availability_search_exclude_requires_customer_id(client, fake_calendar):
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+    response = _search(client, exclude_booking_id=booking["id"])
+    assert response.status_code == 422
+
+
+def test_availability_search_exclude_wrong_customer_404(client, fake_calendar):
+    customer = resolve_customer(client)
+    other = resolve_customer(client, phone="90009999", name="Someone Else")
+    booking = create_booking(client, customer["id"])
+    _mark_busy_like_the_real_calendar_would(fake_calendar, booking)
+
+    response = _search(client, exclude_booking_id=booking["id"], customer_id=other["id"])
+    assert response.status_code == 404  # can't use someone else's booking to free up their slot
+
+
+def test_availability_search_exclude_wrong_business_404(client, fake_calendar, test_engine):
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+    with sessionmaker(bind=test_engine)() as session:
+        session.get(Booking, uuid.UUID(booking["id"])).business_id = "other-business"
+        session.commit()
+
+    response = _search(client, exclude_booking_id=booking["id"], customer_id=customer["id"])
+    assert response.status_code == 404
+
+
+def test_availability_search_exclude_unknown_booking_404(client):
+    customer = resolve_customer(client)
+    response = _search(client, exclude_booking_id=str(uuid.uuid4()), customer_id=customer["id"])
+    assert response.status_code == 404
+
+
+def test_availability_search_exclude_rejects_a_cancelled_booking(client, fake_calendar):
+    """A cancelled booking no longer has a Calendar event, so its old
+    [start, end) is nobody's hold to carve out any more. Reschedule and
+    cancel already refuse a non-confirmed booking with 422; search must
+    too, otherwise a stale booking id frees up whoever booked that slot
+    since - search says "10:00 is free", reschedule then says 422, and the
+    customer was told a time that belongs to someone else.
+    """
+    sarah = resolve_customer(client)
+    old = create_booking(client, sarah["id"])  # 09:00-11:00
+    cancelled = client.post(
+        f"/bookings/{old['id']}/cancel", json={"customer_id": sarah["id"], "business_id": "demo-groomer"}
+    )
+    assert cancelled.status_code == 200, cancelled.text
+
+    ben = resolve_customer(client, phone="98765432", name="Ben Lim")
+    theirs = create_booking(client, ben["id"])  # takes the same 09:00-11:00 slot
+    assert theirs["start"] == old["start"]
+    _mark_busy_like_the_real_calendar_would(fake_calendar, theirs)
+
+    plain = _search(client)
+    assert "10:00" not in _starts(plain)  # Ben's booking + buffer really blocks it
+
+    stale = _search(client, exclude_booking_id=old["id"], customer_id=sarah["id"])
+    assert stale.status_code == 422, stale.text
+    assert "cancelled" in stale.json()["detail"]

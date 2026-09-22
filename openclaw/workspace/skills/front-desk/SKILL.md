@@ -202,9 +202,15 @@ and don't let them change the service through this flow.
    the customer wants (e.g. "next Tuesday morning").
 
 5. **Check availability for the new time.** Run:
-   `scripts/search_availability.py --business <business_id> --service <service from the booking> --date <YYYY-MM-DD> [--period ...] --json`
+   `scripts/search_availability.py --business <business_id> --service <service from the booking> --date <YYYY-MM-DD> [--period ...] --exclude_booking_id <booking id> --customer_id <id> --json`
    Same rules as the Main Plan's step 4 - present the exact returned slots,
    never invent times, re-search fresh for a different date if asked.
+   Always pass `--exclude_booking_id` (the booking being moved) and
+   `--customer_id` here: it tells the search to ignore that booking's own
+   current calendar hold, so a small shift like "push it back an hour" on
+   the same day shows up as available when it genuinely is. Without it,
+   the customer's own booking blocks those times and you'd wrongly tell
+   them nothing nearby is free.
 
 6. **Confirm a choice.** Same as the Main Plan's step 5 - only an exact
    offered slot, otherwise go back to step 5 above.

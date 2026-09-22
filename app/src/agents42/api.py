@@ -24,7 +24,7 @@ from agents42.db import get_session, run_migrations
 from agents42.integrations.google_calendar import CalendarClient, CalendarError, GoogleCalendarClient
 from agents42.models import Booking, Customer, Escalation
 from agents42.profiles.loader import InvalidBusinessProfileError, UnknownBusinessError, load_business_profile
-from agents42.scheduling.service import filter_by_period, find_available_slots
+from agents42.scheduling.service import exclude_period, filter_by_period, find_available_slots
 
 logger = logging.getLogger("agents42.api")
 
@@ -112,6 +112,13 @@ class AvailabilitySearchRequest(BaseModel):
     service: str
     date: date_type
     period: Literal["morning", "afternoon", "evening"] | None = None
+    # Set both when searching on behalf of a reschedule: the named booking's
+    # own Calendar event is carved out of free/busy, exactly as
+    # reschedule_booking does, so search offers the same slots reschedule
+    # will accept. customer_id is required alongside it - a booking can only
+    # be excluded by the customer who owns it, for this business.
+    exclude_booking_id: str | None = None
+    customer_id: str | None = None
 
 
 class SlotResponse(BaseModel):
@@ -145,20 +152,32 @@ def _humanize(key: str) -> str:
 
 
 def _as_aware(value: datetime, tz: ZoneInfo) -> datetime:
-    """Normalize a DB-loaded datetime before comparing it against a
-    tz-aware one computed in Python. Postgres (production) returns aware
-    datetimes for TIMESTAMPTZ columns, but SQLite (used in tests) silently
-    returns *naive* ones for the same column type - and critically, SQLite
-    preserves the original wall-clock digits exactly as written, without
-    converting to UTC first (verified: writing 13:00+08:00 reads back as
-    naive 13:00, not 05:00). So the timezone to reattach is whichever one
-    was used to *write* the value - always the owning business's own
-    profile timezone in this codebase, never UTC. Comparing naive-vs-aware
-    directly would either raise or, for `==`, silently return False, which
-    would make e.g. the reschedule self-exclusion check below fail
-    verbatim on SQLite while working "by accident" on Postgres.
+    """Normalize a DB-loaded datetime to the business's own timezone before
+    comparing it against a tz-aware one computed in Python, or rendering it
+    into a response.
+
+    The two backends hand back the same TIMESTAMPTZ column differently:
+
+    - SQLite (tests) returns *naive* datetimes, preserving the wall-clock
+      digits exactly as written without converting to UTC first (verified:
+      writing 13:00+08:00 reads back as naive 13:00, not 05:00). The zone to
+      reattach is whichever one *wrote* the value - always the owning
+      business's profile timezone in this codebase, never UTC.
+    - Postgres via psycopg (production) returns *aware* datetimes, but in
+      the connection's session timezone - Etc/UTC in the stock postgres
+      image - so the same 13:00+08:00 arrives as 05:00+00:00. That is the
+      same instant, so `==` comparisons still pass, but `.isoformat()` on it
+      renders "05:00:00+00:00", and the agent relaying that to a customer
+      booked at 1pm would read out the wrong clock time. Convert it.
+
+    Comparing naive-vs-aware directly would either raise or, for `==`,
+    silently return False, which would make e.g. the reschedule
+    self-exclusion check fail verbatim on SQLite while working "by
+    accident" on Postgres.
     """
-    return value if value.tzinfo is not None else value.replace(tzinfo=tz)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=tz)
+    return value.astimezone(tz)
 
 
 def _busy_query_window(date_: date_type, hours, buffer_minutes: int, tz: ZoneInfo) -> tuple[datetime, datetime]:
@@ -254,12 +273,39 @@ def get_business_info(business_id: str) -> BusinessInfoResponse:
     )
 
 
-def _compute_available_slots(profile, service, date_: date_type, period: str | None, calendar_client: CalendarClient):
+def _load_own_booking(session: Session, booking_id: str, customer_id: str, business_id: str) -> Booking:
+    """The booking a customer is acting on, or 404. Deliberately does not
+    distinguish "no such booking", "exists but isn't yours", or "exists but
+    belongs to a different business": a WhatsApp session is fixed to one
+    business (see SKILL.md), and without the business check that business's
+    agent could act on a booking the same customer made with a different
+    business.
+    """
+    booking = session.get(Booking, _parse_uuid(booking_id, field="booking_id"))
+    customer_uuid = _parse_uuid(customer_id, field="customer_id")
+    if booking is None or booking.customer_id != customer_uuid or booking.business_id != business_id:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    return booking
+
+
+def _compute_available_slots(
+    profile,
+    service,
+    date_: date_type,
+    period: str | None,
+    calendar_client: CalendarClient,
+    exclude: tuple[datetime, datetime] | None = None,
+):
     """Shared by search_availability (customer-facing, JSON) and the owner
     dashboard's availability panel (server-rendered). Returns raw Slot
     objects, not a response model - callers decide how to present them.
     Raises CalendarError on failure rather than an HTTPException, so each
     caller can translate it into whatever response shape it needs.
+
+    `exclude` is an aware [start, end) to subtract from Calendar free/busy:
+    the booking being rescheduled still holds its own event, and free/busy
+    has no event identity, so without this search would never offer "push
+    it back an hour" even though reschedule_booking accepts it.
     """
     if _exceeds_advance_window(date_, profile):
         return []  # further ahead than this business takes bookings for
@@ -272,6 +318,9 @@ def _compute_available_slots(profile, service, date_: date_type, period: str | N
     tz = ZoneInfo(profile.timezone)
     query_start, query_end = _busy_query_window(date_, hours, service.turnaround_minutes, tz)
     busy = calendar_client.get_busy_periods(profile.calendar_id, query_start, query_end)
+
+    if exclude is not None:
+        busy = exclude_period(busy, *exclude)
 
     slots = find_available_slots(
         date_,
@@ -288,15 +337,34 @@ def _compute_available_slots(profile, service, date_: date_type, period: str | N
 
 @app.post("/availability/search", response_model=AvailabilitySearchResponse)
 def search_availability(
-    body: AvailabilitySearchRequest, calendar_client: CalendarClient = Depends(get_calendar_client)
+    body: AvailabilitySearchRequest,
+    session: Session = Depends(get_session),
+    calendar_client: CalendarClient = Depends(get_calendar_client),
 ) -> AvailabilitySearchResponse:
     profile, service = _load_profile_and_service(body.business_id, body.service)
+    tz = ZoneInfo(profile.timezone)
+
+    # Resolve the booking being moved *before* computing slots (which has
+    # its own closed-day / advance-window early returns) so a bad id is a
+    # 404/422 regardless of which date was asked about.
+    own_period: tuple[datetime, datetime] | None = None
+    if body.exclude_booking_id is not None:
+        if body.customer_id is None:
+            raise HTTPException(status_code=422, detail="customer_id is required with exclude_booking_id")
+        own = _load_own_booking(session, body.exclude_booking_id, body.customer_id, body.business_id)
+        if own.status != "confirmed":
+            # Same guard as reschedule_booking. A cancelled booking has no
+            # Calendar event any more, so its old [start, end) is nobody's
+            # hold to carve out - whoever booked that time since would be
+            # erased from free/busy and offered a slot that isn't free.
+            raise HTTPException(status_code=422, detail=f"Booking is {own.status!r}, not reschedulable")
+        own_period = (_as_aware(own.start_time, tz), _as_aware(own.end_time, tz))
+
     try:
-        slots = _compute_available_slots(profile, service, body.date, body.period, calendar_client)
+        slots = _compute_available_slots(profile, service, body.date, body.period, calendar_client, exclude=own_period)
     except CalendarError as exc:
         raise HTTPException(status_code=502, detail=f"Calendar unavailable: {exc}") from exc
     return AvailabilitySearchResponse(slots=[SlotResponse(start=s.start.isoformat(), end=s.end.isoformat()) for s in slots])
-
 
 # --- Bookings ----------------------------------------------------------------
 
@@ -461,19 +529,7 @@ def reschedule_booking(
     session: Session = Depends(get_session),
     calendar_client: CalendarClient = Depends(get_calendar_client),
 ) -> BookingResponse:
-    booking = session.get(Booking, _parse_uuid(booking_id, field="booking_id"))
-    customer_uuid = _parse_uuid(body.customer_id, field="customer_id")
-    if (
-        booking is None
-        or booking.customer_id != customer_uuid
-        or booking.business_id != body.business_id
-    ):
-        # Don't distinguish "no such booking", "exists but isn't yours", or
-        # "exists but belongs to a different business" - same 404 either
-        # way. A WhatsApp session is fixed to one business (see SKILL.md);
-        # without this check that business's agent could reschedule a
-        # booking the same customer made with a different business.
-        raise HTTPException(status_code=404, detail="Booking not found")
+    booking = _load_own_booking(session, booking_id, body.customer_id, body.business_id)
     return _reschedule_booking_core(booking, body.new_start, session, calendar_client)
 
 
@@ -500,17 +556,7 @@ def _reschedule_booking_core(
     # Moving to the exact time the booking is already at is a legitimate
     # no-op (e.g. the customer re-confirming after list_bookings.py showed
     # them their current slot) - short-circuit before touching Calendar at
-    # all, rather than trying to guess which busy period is this booking's
-    # own event. Google's freebusy API only returns time ranges, not event
-    # identity, so filtering busy periods by matching start/end was a real
-    # risk: a different event that happens to share this exact start/end
-    # (another booking, or an unrelated calendar entry) would be
-    # indistinguishable from this one and could get silently hidden too.
-    # For a genuinely different time, the booking's own current slot is
-    # left in free/busy as-is - an overlapping target time will likely be
-    # rejected as self-conflicting, an accepted limitation for now (revisit
-    # with a per-event lookup via google_event_id if adjacent-time moves
-    # need to be supported later).
+    # all.
     if new_start == own_start:
         return BookingResponse(
             id=str(booking.id),
@@ -540,6 +586,16 @@ def _reschedule_booking_core(
         busy = calendar_client.get_busy_periods(profile.calendar_id, query_start, query_end)
     except CalendarError as exc:
         raise HTTPException(status_code=502, detail=f"Calendar unavailable, booking not rescheduled: {exc}") from exc
+
+    # The booking's own Calendar event is still there and shows up in
+    # free/busy, so without this a move to any time overlapping its current
+    # slot (or its trailing buffer) would be refused as a conflict with
+    # itself - e.g. "push my 1pm back to 2pm". Free/busy returns merged time
+    # ranges with no event identity, so we can't drop "the booking's event";
+    # instead subtract exactly its own [start, end) from every range. Any
+    # neighbouring event coalesced into the same range survives as the
+    # leftover piece and still blocks, as it should.
+    busy = exclude_period(busy, own_start, own_end)
 
     # Recheck immediately before rescheduling, same reasoning as create_booking.
     valid_slots = find_available_slots(
@@ -632,17 +688,7 @@ def cancel_booking(
     session: Session = Depends(get_session),
     calendar_client: CalendarClient = Depends(get_calendar_client),
 ) -> BookingResponse:
-    booking = session.get(Booking, _parse_uuid(booking_id, field="booking_id"))
-    customer_uuid = _parse_uuid(body.customer_id, field="customer_id")
-    if (
-        booking is None
-        or booking.customer_id != customer_uuid
-        or booking.business_id != body.business_id
-    ):
-        # Don't distinguish "no such booking", "exists but isn't yours", or
-        # "exists but belongs to a different business" - same 404 either
-        # way, same reasoning as reschedule_booking above.
-        raise HTTPException(status_code=404, detail="Booking not found")
+    booking = _load_own_booking(session, booking_id, body.customer_id, body.business_id)
     return _cancel_booking_core(booking, session, calendar_client)
 
 
