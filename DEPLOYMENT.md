@@ -97,9 +97,22 @@ public - a direct message, not a public channel.
 
 ## What's running there
 
-- **Docker Compose** (FastAPI + Postgres) - same `docker-compose.yml` as local, ports bound to
-  `127.0.0.1` only (verified unreachable from the public internet). Real random Postgres password
-  generated on first deploy, not the `change-me` placeholder.
+- **Docker Compose** (FastAPI + Postgres + owner dashboard) - same `docker-compose.yml` as local.
+  The customer-facing `app` and `postgres` ports are bound to `127.0.0.1` only (verified
+  unreachable from the public internet). Real random Postgres password generated on first deploy,
+  not the `change-me` placeholder. `owner-dashboard` is the one deliberate exception - see below.
+- **Owner dashboard**, port 8091, gated by `OWNER_DASHBOARD_PASSWORD` (HTTP Basic Auth). Two ways
+  to actually reach it - see DEVELOPMENT.md "Owner dashboard" for the full comparison:
+  1. **Direct HTTP** - requires a manual Lightsail firewall rule (not done via SSH): instance page
+     -> Networking tab -> IPv4 Firewall -> Add rule -> Custom TCP, port 8091 (restrict the source
+     to the owner's known IP if they have a stable one; otherwise this is plain HTTP open to
+     whoever finds the port).
+  2. **SSH tunnel** (`ssh -L 8091:localhost:8091 ...`) - no firewall rule needed, traffic stays
+     inside the already-open SSH connection instead of a new public port. Preferred for a
+     developer/teammate checking the dashboard; direct HTTP is more about the owner themselves
+     being able to just open a URL without needing SSH access at all.
+  Ask a developer for the dashboard URL/IP and password rather than guessing - not published here,
+  this repo is public.
 - **OpenClaw**, installed natively (not in Docker - see DEVELOPMENT.md), running as a systemd user
   service (`openclaw-gateway`) with lingering enabled so it survives SSH logout and reboots.
 - **`front-desk` skill**, installed from the repo, pointed at the local backend
@@ -141,7 +154,10 @@ ssh -i ~/.ssh/LightsailDefaultKey-ap-southeast-1.pem ubuntu@<instance-static-ip>
 cd ~/agents42 && git pull origin main
 sudo docker compose up -d --build
 curl -s http://127.0.0.1:8090/health
+curl -s http://127.0.0.1:8091/health   # owner-dashboard - no Basic Auth needed for /health
 ```
+No service name on `up -d --build` is deliberate - `app` and `owner-dashboard` share one built
+image (see `docker-compose.yml`), so this rebuilds/recreates both together in one step.
 
 **Skill or SKILL.md changed** (`openclaw/workspace/skills/front-desk/`):
 ```bash

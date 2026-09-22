@@ -99,8 +99,12 @@ recheck-immediately-before-booking guard, orphaned-Calendar-event rollback if th
 rescheduling an existing booking to a new time (same recheck-before-committing guard, updates the
 booking in place rather than creating a duplicate), and cancelling an existing booking (marks it
 cancelled and removes its Calendar event). Verified end-to-end against the hackathon's own AWS
-Bedrock gateway through a real linked WhatsApp number. Not yet built: owner-facing commands,
-multi-staff/location support - see AGENTS42.md "Not in this slice".
+Bedrock gateway through a real linked WhatsApp number. A small owner-facing dashboard is also
+implemented (`agents42.owner_api`) - today's/upcoming bookings, manual cancel/reschedule, blocking
+off unavailable time, an escalation queue, a searchable customer directory with booking history,
+and a read-only view of the business profile the agent itself uses - see DEVELOPMENT.md "Owner
+dashboard". Not yet built: an owner-facing AI agent, multi-staff/location support, editing the
+business profile from the dashboard - see AGENTS42.md "Not in this slice".
 
 ## Docs
 
@@ -115,4 +119,6 @@ multi-staff/location support - see AGENTS42.md "Not in this slice".
 - [DEVELOPMENT.md](DEVELOPMENT.md) - contributor/build workflow, testing levels.
 - [DEPLOYMENT.md](DEPLOYMENT.md) - the live AWS instance: details, redeploy procedure, gotchas.
 - `docs/2026-09-05-agents42-proposal.md` - the official hackathon proposal.
+- `docs/2026-09-20-owner-dashboard-decision.md` - why the owner dashboard was built before an
+  owner AI agent, and how they fit together architecturally.
 - `docs/2026-08-27-sme-*.md` - pre-kickoff brainstorm/action-plan (historical context).

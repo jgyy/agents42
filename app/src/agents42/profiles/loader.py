@@ -19,6 +19,18 @@ class ServiceProfile(BaseModel):
     duration_minutes: int
     turnaround_minutes: int
     display_name: str | None = None  # falls back to a humanized key if unset - see api.py
+    price_from: str | None = None  # e.g. "S$60" - a starting estimate, not a computed price
+
+
+class AddOnProfile(BaseModel):
+    """A priced extra that isn't independently bookable - no duration/
+    turnaround of its own, so it can't go through search_availability/
+    create_booking like a ServiceProfile can. The agent can quote its price
+    if asked, but must not try to book one as a standalone appointment.
+    """
+
+    display_name: str | None = None
+    price_from: str | None = None
 
 
 class OpeningHours(BaseModel):
@@ -33,10 +45,14 @@ class BusinessProfile(BaseModel):
     calendar_id: str
     address: str | None = None
     services: dict[str, ServiceProfile]
+    add_ons: dict[str, AddOnProfile] = Field(default_factory=dict)
     opening_hours: dict[str, OpeningHours]  # keyed by lowercase weekday name, e.g. "monday"
     required_customer_fields: list[str] = Field(default_factory=lambda: ["name", "phone"])
     optional_customer_fields: list[str] = Field(default_factory=list)
     slot_interval_minutes: int = 60
+    about: str | None = None  # credentials/qualifications/appointment-policy blurb, relayed verbatim
+    pricing_note: str | None = None  # e.g. "exact cost to be advised" - shown alongside price_from figures
+    max_advance_days: int | None = None  # None = no limit; e.g. 90 for "up to 3 months ahead"
 
 
 class UnknownBusinessError(LookupError):

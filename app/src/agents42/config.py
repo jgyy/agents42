@@ -13,5 +13,12 @@ class Settings(BaseSettings):
     google_calendar_credentials_path: Path = Path("credentials/calendar_credentials.json")
     google_calendar_token_path: Path = Path("credentials/calendar_token.json")
 
+    # Owner dashboard (owner_api.py). Defaulted empty rather than required -
+    # this Settings class is shared with api.py/tests, which must keep
+    # working with no dashboard configured at all. owner_api.py's own
+    # lifespan fails fast if either is unset instead.
+    owner_dashboard_password: str = ""
+    owner_dashboard_business_id: str = ""
+
 
 settings = Settings()

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ customer.name }} — {{ profile.name }} Owner Dashboard</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 1.5rem; background: #f1edf9; color: #222; }
+  a { color: #1a5c8a; text-decoration: underline; text-decoration-color: rgba(26,92,138,0.35); text-underline-offset: 2px; }
+  a:hover, a:focus { color: #0d3a56; text-decoration-color: currentColor; }
+  .panel { background: #fff; border: 1px solid #e2e2de; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1rem; max-width: 40rem; }
+  .field { margin-bottom: 0.75rem; }
+  .field .label { font-size: 0.8rem; color: #777; text-transform: uppercase; letter-spacing: 0.03em; }
+  .booking { border-bottom: 1px solid #eee; padding: 0.5rem 0; display: flex; gap: 0.75rem; align-items: baseline; flex-wrap: wrap; }
+  .booking:last-child { border-bottom: none; }
+  .status { font-size: 0.8rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: #eee; }
+  .status-cancelled { background: #fde2e2; color: #a33; }
+  .status-completed { background: #e5f5e5; color: #275; }
+  .status-upcoming { background: #e2f0fd; color: #245; }
+  .empty { color: #888; font-style: italic; }
+</style>
+</head>
+<body>
+
+<p><a href="/">&larr; Back to dashboard</a></p>
+
+<h1>{{ customer.name }}</h1>
+
+<section class="panel">
+  <div class="field"><div class="label">Phone</div><div><a href="tel:{{ customer.phone }}">{{ customer.phone }}</a></div></div>
+  {% if customer.address %}<div class="field"><div class="label">Address</div><div>{{ customer.address }}</div></div>{% endif %}
+  {% if customer.notes %}<div class="field"><div class="label">Notes</div><div>{{ customer.notes }}</div></div>{% endif %}
+</section>
+
+<section class="panel">
+  <h2>Booking history</h2>
+  {% for h in history %}
+    <div class="booking">
+      <span>{{ h.start.strftime('%d %b %Y, %H:%M') }}</span>
+      <span>{{ h.booking.service }}</span>
+      <span class="status status-{{ h.display_status }}">{{ h.display_status }}</span>
+    </div>
+  {% else %}
+    <p class="empty">No bookings with this business yet.</p>
+  {% endfor %}
+</section>
+
+</body>
+</html>

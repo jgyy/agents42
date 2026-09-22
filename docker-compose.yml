@@ -9,6 +9,7 @@ services:
     build:
       context: .
       dockerfile: app/Dockerfile
+    image: agents42-app:latest
     restart: unless-stopped
     env_file:
       - .env
@@ -25,6 +26,44 @@ services:
       - ./credentials/calendar_credentials.json:/app/credentials/calendar_credentials.json:ro
     depends_on:
       postgres:
+        condition: service_healthy
+    healthcheck:
+      # Also serializes owner-dashboard's startup behind this container's
+      # migration run (see owner-dashboard's depends_on below) - both
+      # services call run_migrations() on boot, and 0001_init.sql's
+      # CREATE TABLEs have no IF NOT EXISTS guard, so two containers
+      # migrating at once could race. FastAPI's lifespan only yields (and
+      # /health only responds) after run_migrations() completes.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  owner-dashboard:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    image: agents42-app:latest
+    command: ["uvicorn", "agents42.owner_api:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      # Deliberately NOT 127.0.0.1-only, unlike every other port in this
+      # project - the owner needs to reach this from a browser. Gated by
+      # HTTP Basic Auth (OWNER_DASHBOARD_PASSWORD) on every route except
+      # /health. See DEVELOPMENT.md "Owner dashboard" for why this is the
+      # one deliberate exception to the "everything's 127.0.0.1" hardening,
+      # and the manual Lightsail firewall step needed to actually reach it.
+      - "8091:8000"
+    volumes:
+      - ./businesses:/app/businesses:ro
+      - ./credentials:/app/credentials
+      - ./credentials/calendar_credentials.json:/app/credentials/calendar_credentials.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      app:
         condition: service_healthy
 
   postgres:

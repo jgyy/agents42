@@ -13,11 +13,45 @@ calendar_id: primary
 
 address: "8 Somapah Road, Singapore 487372"
 
+# Credentials/qualifications blurb, relayed verbatim by the agent when asked
+# what the business offers or whether it's qualified for something specific
+# (small animals, handstripping, etc.) - not itself a bookable service.
+about: >
+  Certified SKC (Singapore Kennel Club) and KCT groomers, certified K9 first
+  responders. We offer bespoke trims, small animal grooming, and
+  handstripping. By appointment only.
+
+pricing_note: "Exact cost to be advised - prices below are starting estimates."
+
 services:
   full_grooming:
     display_name: "Full Grooming"
     duration_minutes: 120
     turnaround_minutes: 60
+    price_from: "S$60"
+  basic_grooming:
+    display_name: "Basic Grooming"
+    duration_minutes: 120
+    # Not separately confirmed - assumed same as full_grooming's turnaround
+    # since it's the same 2-hour appointment length. Revisit if wrong.
+    turnaround_minutes: 60
+    price_from: "S$35"
+
+# Priced extras with no appointment slot of their own - not bookable
+# independently via search_availability/create_booking (see AddOnProfile).
+add_ons:
+  bath:
+    display_name: "Bath"
+    price_from: "S$25"
+  strip_down:
+    display_name: "Strip Down"
+    price_from: "S$55"
+  dematting:
+    display_name: "Dematting"
+    price_from: "S$35"
+  ayurveda_herb_spa:
+    display_name: "Ayurveda Herb Spa"
+    price_from: "S$35"
 
 opening_hours:
   monday: { open: "09:00", close: "18:00" }
@@ -37,3 +71,8 @@ optional_customer_fields:
   - notes
 
 slot_interval_minutes: 60
+
+# Appointments can be made up to 3 months in advance. Stored in days (not
+# calendar months) since all the scheduling code already works in plain
+# timedeltas - 90 is used as the practical equivalent of "3 months".
+max_advance_days: 90

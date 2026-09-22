@@ -272,6 +272,66 @@ def test_availability_search_returns_empty_when_closed(client):
     assert response.json()["slots"] == []
 
 
+def test_availability_search_returns_empty_beyond_the_advance_window(client):
+    too_far = date.today() + timedelta(days=DEMO_PROFILE.max_advance_days + 7)
+    response = client.post(
+        "/availability/search",
+        json={"business_id": "demo-groomer", "service": "full_grooming", "date": too_far.isoformat()},
+    )
+    assert response.status_code == 200
+    assert response.json()["slots"] == []
+
+
+def test_availability_search_still_returns_slots_just_inside_the_advance_window(client):
+    # A weekday close to but not past the boundary - regression guard
+    # against an off-by-one that rejects everything near the edge.
+    near_edge = next_weekday(date.today() + timedelta(days=DEMO_PROFILE.max_advance_days - 7), 4)
+    response = client.post(
+        "/availability/search",
+        json={"business_id": "demo-groomer", "service": "full_grooming", "date": near_edge.isoformat()},
+    )
+    assert response.status_code == 200
+    assert response.json()["slots"] != []
+
+
+def test_booking_rejects_a_date_beyond_the_advance_window(client):
+    customer = resolve_customer(client)
+    too_far = date.today() + timedelta(days=DEMO_PROFILE.max_advance_days + 7)
+    response = client.post(
+        "/bookings",
+        json={
+            "business_id": "demo-groomer",
+            "customer_id": customer["id"],
+            "service": "full_grooming",
+            "start": f"{too_far.isoformat()}T09:00:00+08:00",
+        },
+    )
+    assert response.status_code == 422
+    assert "advance" in response.json()["detail"]
+
+
+def test_reschedule_rejects_a_date_beyond_the_advance_window(client, fake_calendar):
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+    _mark_busy_like_the_real_calendar_would(fake_calendar, booking)
+
+    too_far = date.today() + timedelta(days=DEMO_PROFILE.max_advance_days + 7)
+    response = client.post(
+        f"/bookings/{booking['id']}/reschedule",
+        json={
+            "customer_id": customer["id"],
+            "business_id": "demo-groomer",
+            "new_start": f"{too_far.isoformat()}T09:00:00+08:00",
+        },
+    )
+    assert response.status_code == 422
+    assert "advance" in response.json()["detail"]
+
+    # Original booking untouched.
+    unchanged = client.get(f"/bookings/{booking['id']}")
+    assert unchanged.json()["start"] == booking["start"]
+
+
 def test_availability_search_502_when_calendar_down(client, fake_calendar):
     fake_calendar.fail_get_busy = True
     response = client.post(
@@ -327,6 +387,59 @@ def test_get_business_info(client):
 def test_get_business_info_unknown_business_404(client):
     response = client.get("/businesses/does-not-exist")
     assert response.status_code == 404
+
+
+def test_get_business_info_includes_pricing_and_add_ons(client):
+    response = client.get("/businesses/demo-groomer")
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["services"]["full_grooming"]["price_from"] == "S$60"
+    assert body["services"]["basic_grooming"]["price_from"] == "S$35"
+    assert body["services"]["basic_grooming"]["duration_minutes"] == 120
+
+    assert body["add_ons"]["bath"] == {"display_name": "Bath", "price_from": "S$25"}
+    assert body["add_ons"]["ayurveda_herb_spa"]["price_from"] == "S$35"
+
+    assert "SKC" in body["about"]
+    assert "advised" in body["pricing_note"]
+    assert body["max_advance_days"] == 90
+
+
+def test_basic_grooming_is_actually_bookable(client, fake_calendar):
+    customer = resolve_customer(client)
+    search = client.post(
+        "/availability/search",
+        json={"business_id": "demo-groomer", "service": "basic_grooming", "date": FRIDAY.isoformat()},
+    )
+    assert search.status_code == 200, search.text
+    first_slot = search.json()["slots"][0]
+
+    booking = client.post(
+        "/bookings",
+        json={
+            "business_id": "demo-groomer",
+            "customer_id": customer["id"],
+            "service": "basic_grooming",
+            "start": first_slot["start"],
+        },
+    )
+    assert booking.status_code == 201, booking.text
+    assert booking.json()["service"] == "basic_grooming"
+
+
+def test_add_on_is_not_independently_bookable(client):
+    customer = resolve_customer(client)
+    response = client.post(
+        "/bookings",
+        json={
+            "business_id": "demo-groomer",
+            "customer_id": customer["id"],
+            "service": "bath",
+            "start": f"{FRIDAY.isoformat()}T09:00:00+08:00",
+        },
+    )
+    assert response.status_code == 422
 
 
 def test_booking_rechecks_availability_and_rejects_now_busy_slot(client, fake_calendar):

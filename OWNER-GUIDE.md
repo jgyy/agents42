@@ -18,6 +18,28 @@ ask someone else to) and ask something like *"what services do you offer?"*. You
 reply within about 30 seconds. If you do, everything is working - you don't need to read any
 further unless something seems wrong.
 
+## Your dashboard
+
+You have a web page where you can see everything the assistant is doing and step in when needed -
+ask a developer for the link and the password (not published here, since this whole guide is
+public on the internet). Open it in any browser and enter the password when asked.
+
+What's on it:
+- **Today** and **Upcoming** - every booking, with the customer's name and phone number, so you
+  can call them if you need to.
+- **Recently cancelled / changed** - a quick history of what's moved or been cancelled lately.
+- **Attention** - anything the assistant couldn't handle itself and needs you to follow up on
+  (a discount request, a complaint, anything it wasn't sure about). Click "Resolve" once you've
+  dealt with it.
+- **Availability & Block Time** - check what times are free on a given day, and block off time
+  you're personally unavailable (a break, a day off) so customers can't book into it.
+
+You can also cancel or move any booking directly from here, without needing to touch WhatsApp.
+
+A word of caution: right now this page isn't encrypted (no padlock icon in your browser) - treat
+the password the same way you'd treat a shared office door key, not a banking password, and ask
+your developer before using it anywhere you wouldn't trust an open WiFi network.
+
 ## Logging into AWS
 
 You'll have a **team code** (given to you separately) and a login link. If you don't have these,

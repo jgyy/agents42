@@ -13,7 +13,7 @@ The proposal defined five agent roles. This first vertical slice implements one 
 |---|---|---|
 | Customer Service Agent (answer enquiries) | Implemented, folded into `front-desk` | `openclaw/workspace/skills/front-desk/SKILL.md` |
 | Scheduling Agent (check availability, book, and check on/reschedule/cancel a customer's own booking) | Implemented, folded into `front-desk` | same skill, via `search_availability.py` / `create_booking.py` / `list_bookings.py` / `reschedule_booking.py` / `cancel_booking.py` |
-| Owner Assistant Agent | Not built | - |
+| Owner Assistant Agent | Not built - see "Owner dashboard" below for what *is* built instead | - |
 | Customer Follow-up Agent (reminders) | Not built | - |
 | Rescheduling Coordinator | Not built | - |
 
@@ -37,6 +37,24 @@ bit us once already). Splitting a single continuous "manage my booking" conversa
 multiple optionally-engaged skills would reintroduce that exact reliability risk for no benefit,
 since none of these actions need an authority level different from booking itself.
 
+## Owner dashboard (not the Owner Assistant Agent role)
+
+`app/src/agents42/owner_api.py` is a small server-rendered dashboard for the business owner -
+today's/upcoming bookings, a manual reschedule/cancel action, blocking off unavailable time, an
+"Attention" queue of escalations, a searchable customer directory with per-customer booking
+history, and a read-only view of the business profile the front-desk agent itself reads facts
+from. **This is a human-facing read/write UI, not an LLM agent** - no model is involved anywhere
+in it. Don't confuse it with the still-not-built Owner Assistant Agent role above; the dashboard
+exists precisely so the owner has a way to see and act on the same data an eventual Owner
+Assistant Agent would also need, without having to build that agent's own trust/authority model
+first. See DEVELOPMENT.md "Owner dashboard" for how to run it and its documented limitations
+(plain HTTP, single shared password, no CSRF protection, business profile editing not built yet).
+
+The `flag_attention.py` script (table below) is what makes escalations visible there at all -
+before it existed, the front-desk skill's escalation step was purely conversational text that
+vanished once said; there was no way for the business to actually find out short of reading the
+WhatsApp conversation themselves.
+
 ## Reasoning loop and tool contract
 
 OpenClaw's gateway (per the organiser's starter kit) doesn't do native LLM tool-calling, so the
@@ -47,12 +65,13 @@ conversation itself; there's no separate session/memory store yet.
 | Script (agent-facing) | Backend endpoint | Purpose |
 |---|---|---|
 | `resolve_customer.py --phone [--name]` | `POST /customers/resolve` | find-or-create by phone, never by name - returns `needs_name` rather than erroring when a new phone has no name yet |
-| `get_business_info.py --business` | `GET /businesses/{id}` | name, address, hours, services - the only source for these facts |
+| `get_business_info.py --business` | `GET /businesses/{id}` | name, address, hours, services (with `price_from`), add-ons (priced extras, not independently bookable), credentials/policy blurb, `max_advance_days` - the only source for these facts |
 | `search_availability.py --business --service --date [--period] [--exclude_booking_id --customer_id]` | `POST /availability/search` | real slots, Calendar-checked; the exclude pair ignores the customer's own booking when rescheduling |
 | `create_booking.py --business --customer_id --service --start` | `POST /bookings` | recheck against the same slot logic as availability search + Calendar event + DB row |
 | `list_bookings.py --business --customer_id` | `GET /customers/{id}/bookings?business_id=` | upcoming confirmed bookings for *this business only* - what a reschedule/cancel flow needs to show |
 | `reschedule_booking.py --business --booking_id --customer_id --new_start` | `POST /bookings/{id}/reschedule` | same recheck + updates the booking's own start/end/Calendar event in place, not a new row |
 | `cancel_booking.py --business --booking_id --customer_id` | `POST /bookings/{id}/cancel` | deletes the Calendar event first, then marks the booking cancelled - fails closed (502) if the Calendar delete fails, rather than reporting success with a stale Calendar hold left behind |
+| `flag_attention.py --business [--customer_id] [--booking_id] --reason [--detail]` | `POST /escalations` | records an escalation for the owner dashboard's Attention panel; best-effort - a failure here doesn't change what the agent tells the customer |
 
 `--business` on all three is not optional decoration - the backend rejects (404) a booking whose
 `business_id` doesn't match, even for the correct customer. A customer can have bookings with more
@@ -74,6 +93,10 @@ Calendar - the agent has no direct database or Calendar credentials of its own.
   earlier in the conversation is never trusted. The check and the create are still two separate
   calls, not one atomic operation, so a true simultaneous race is possible in principle; see
   DEVELOPMENT.md "Cautions" for why that's an accepted gap for now, not an oversight.
+- **Advance-booking window enforced once, applied everywhere.** `BusinessProfile.max_advance_days`
+  (e.g. "up to 3 months ahead") is checked by one shared function (`_exceeds_advance_window`),
+  called identically from availability search, booking, and reschedule - never left to the LLM to
+  reason about date arithmetic itself. `None` means no limit.
 - **Fail closed on Calendar/DB errors.** Calendar failures return `502` (never "confirmed" or
   "cancelled"); a Calendar-event-created-but-DB-write-failed race deletes the orphaned event
   rather than leaving a phantom booking. Cancellation deletes the Calendar event *before*
@@ -142,7 +165,7 @@ The backend logs booking failures and Calendar-deletion rollbacks via Python `lo
 cover, since it only exercises the Python backend - `tests/agent_cases/` runs scripted
 conversations against the real OpenClaw gateway. Not part of CI (real LLM calls, real budget
 against the hackathon gateway); run manually before a demo or after any SKILL.md/AGENTS.md/
-SOUL.md change. Nine scenarios so far:
+SOUL.md change. Ten scenarios so far:
 
 - `01_business_info.md` - greeting doesn't create a customer; FAQ uses the real business-info tool
 - `02_new_customer.md` - new phone asks for a name; returning customer is recognised
@@ -160,6 +183,9 @@ SOUL.md change. Nine scenarios so far:
   confirmation before acting) is manual
 - `09_identity_switch.md` - a different phone number claimed mid-session is escalated, not
   re-resolved or asked-and-switched
+- `10_escalation_flagging.md` - manual; an escalation trigger produces both the standard reply
+  and a persisted record the owner dashboard actually shows - caught a real reliability gap
+  during development, see the file for what happened and how it was fixed
 
 Still a real gap relative to the judging rubric's "Observability & Evaluation" criterion: no
 tracing/run history beyond what `openclaw sessions`/`openclaw logs` already give for free, and
