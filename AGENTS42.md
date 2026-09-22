@@ -48,7 +48,7 @@ conversation itself; there's no separate session/memory store yet.
 |---|---|---|
 | `resolve_customer.py --phone [--name]` | `POST /customers/resolve` | find-or-create by phone, never by name - returns `needs_name` rather than erroring when a new phone has no name yet |
 | `get_business_info.py --business` | `GET /businesses/{id}` | name, address, hours, services - the only source for these facts |
-| `search_availability.py --business --service --date [--period]` | `POST /availability/search` | real slots, Calendar-checked |
+| `search_availability.py --business --service --date [--period] [--exclude_booking_id --customer_id]` | `POST /availability/search` | real slots, Calendar-checked; the exclude pair ignores the customer's own booking when rescheduling |
 | `create_booking.py --business --customer_id --service --start` | `POST /bookings` | recheck against the same slot logic as availability search + Calendar event + DB row |
 | `list_bookings.py --business --customer_id` | `GET /customers/{id}/bookings?business_id=` | upcoming confirmed bookings for *this business only* - what a reschedule/cancel flow needs to show |
 | `reschedule_booking.py --business --booking_id --customer_id --new_start` | `POST /bookings/{id}/reschedule` | same recheck + updates the booking's own start/end/Calendar event in place, not a new row |
