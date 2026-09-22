@@ -93,3 +93,26 @@ def test_filter_by_period():
     assert filter_by_period(slots, "afternoon") == [slots[1]]
     assert filter_by_period(slots, "evening") == [slots[2]]
     assert filter_by_period(slots, None) == slots
+
+
+def test_exclude_period_carves_own_interval_out_of_merged_busy_ranges():
+    """Google freebusy merges overlapping events into one range, so a
+    booking's own slot can arrive glued to a neighbour's. Subtracting the
+    own interval must keep every leftover piece, not drop the whole range.
+    """
+    from agents42.scheduling.service import exclude_period
+
+    day = datetime(2026, 10, 2, tzinfo=TZ)
+    at = lambda h: day.replace(hour=h)  # noqa: E731
+
+    merged = [BusyPeriod(at(9), at(13))]  # own 09-11 merged with a neighbour 11-13
+    assert exclude_period(merged, at(9), at(11)) == [BusyPeriod(at(11), at(13))]
+
+    surrounded = [BusyPeriod(at(8), at(14))]  # own 10-12 inside a bigger range
+    assert exclude_period(surrounded, at(10), at(12)) == [BusyPeriod(at(8), at(10)), BusyPeriod(at(12), at(14))]
+
+    exact = [BusyPeriod(at(9), at(11)), BusyPeriod(at(15), at(16))]
+    assert exclude_period(exact, at(9), at(11)) == [BusyPeriod(at(15), at(16))]
+
+    untouched = [BusyPeriod(at(15), at(16))]
+    assert exclude_period(untouched, at(9), at(11)) == untouched

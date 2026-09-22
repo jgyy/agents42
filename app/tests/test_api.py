@@ -974,3 +974,45 @@ def test_db_loaded_datetime_is_rendered_in_business_timezone(loaded):
     tz = ZoneInfo(DEMO_PROFILE.timezone)
     rendered = _as_aware(loaded, tz).isoformat()
     assert rendered == "2026-10-02T13:00:00+08:00"
+
+
+def test_reschedule_to_a_slot_overlapping_its_own_current_slot_succeeds(client, fake_calendar):
+    """A booking must not conflict with itself. Moving 09:00-11:00 to 10:00
+    on the same day is a real, common request ("can we push it back an
+    hour?") and the only thing occupying 10:00-11:00 is this very booking,
+    which is about to be moved. Before the fix this 409'd.
+    """
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])  # first slot of the day, 09:00-11:00
+    _mark_busy_like_the_real_calendar_would(fake_calendar, booking)
+
+    new_start = dt_module.datetime.fromisoformat(booking["start"]) + timedelta(hours=1)
+    response = client.post(
+        f"/bookings/{booking['id']}/reschedule",
+        json={"customer_id": customer["id"], "business_id": "demo-groomer", "new_start": new_start.isoformat()},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["start"] == new_start.isoformat()
+    assert fake_calendar.created_events == ["evt-1", "evt-2"]
+    assert fake_calendar.deleted_events == ["evt-1"]
+
+
+def test_reschedule_still_rejects_a_neighbour_merged_into_its_own_busy_range(client, fake_calendar):
+    """Google freebusy coalesces adjacent events: own 09:00-11:00 plus
+    someone else's 11:00-13:00 arrives as one 09:00-13:00 range. Excluding
+    the booking's own slot must not also hide that neighbour.
+    """
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+    own_start = dt_module.datetime.fromisoformat(booking["start"])
+    own_end = dt_module.datetime.fromisoformat(booking["end"])
+    fake_calendar.busy = [BusyPeriod(start=own_start, end=own_end + timedelta(hours=2))]
+
+    # 10:00-12:00 overlaps the neighbour's 11:00-13:00 - must still be refused.
+    new_start = own_start + timedelta(hours=1)
+    response = client.post(
+        f"/bookings/{booking['id']}/reschedule",
+        json={"customer_id": customer["id"], "business_id": "demo-groomer", "new_start": new_start.isoformat()},
+    )
+    assert response.status_code == 409
+    assert fake_calendar.created_events == ["evt-1"]

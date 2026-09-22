@@ -48,6 +48,28 @@ def is_valid_slot(
     return True
 
 
+def exclude_period(existing_events: list[BusyPeriod], start: datetime, end: datetime) -> list[BusyPeriod]:
+    """Subtract the interval [start, end) from every busy period.
+
+    Used when rescheduling: the booking being moved still has its own
+    Calendar event, and free/busy returns only merged time ranges with no
+    event identity, so the booking would otherwise conflict with itself.
+    Carving out exactly its own interval (rather than dropping any range
+    that happens to match it) keeps whatever else was merged into the same
+    range - e.g. a neighbouring event that starts the minute this one ends.
+    """
+    result: list[BusyPeriod] = []
+    for event in existing_events:
+        if not _overlaps(event.start, event.end, start, end):
+            result.append(event)
+            continue
+        if event.start < start:
+            result.append(BusyPeriod(start=event.start, end=start))
+        if end < event.end:
+            result.append(BusyPeriod(start=end, end=event.end))
+    return result
+
+
 def find_available_slots(
     date_: datetime.date,
     opening_time: time,
