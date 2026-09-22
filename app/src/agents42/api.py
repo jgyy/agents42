@@ -270,6 +270,12 @@ def search_availability(
         if body.customer_id is None:
             raise HTTPException(status_code=422, detail="customer_id is required with exclude_booking_id")
         own = _load_own_booking(session, body.exclude_booking_id, body.customer_id, body.business_id)
+        if own.status != "confirmed":
+            # Same guard as reschedule_booking. A cancelled booking has no
+            # Calendar event any more, so its old [start, end) is nobody's
+            # hold to carve out - whoever booked that time since would be
+            # erased from free/busy and offered a slot that isn't free.
+            raise HTTPException(status_code=422, detail=f"Booking is {own.status!r}, not reschedulable")
         own_period = (_as_aware(own.start_time, tz), _as_aware(own.end_time, tz))
 
     weekday = body.date.strftime("%A").lower()

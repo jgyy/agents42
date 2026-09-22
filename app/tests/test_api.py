@@ -1109,3 +1109,31 @@ def test_availability_search_exclude_unknown_booking_404(client):
     customer = resolve_customer(client)
     response = _search(client, exclude_booking_id=str(uuid.uuid4()), customer_id=customer["id"])
     assert response.status_code == 404
+
+
+def test_availability_search_exclude_rejects_a_cancelled_booking(client, fake_calendar):
+    """A cancelled booking no longer has a Calendar event, so its old
+    [start, end) is nobody's hold to carve out any more. Reschedule and
+    cancel already refuse a non-confirmed booking with 422; search must
+    too, otherwise a stale booking id frees up whoever booked that slot
+    since - search says "10:00 is free", reschedule then says 422, and the
+    customer was told a time that belongs to someone else.
+    """
+    sarah = resolve_customer(client)
+    old = create_booking(client, sarah["id"])  # 09:00-11:00
+    cancelled = client.post(
+        f"/bookings/{old['id']}/cancel", json={"customer_id": sarah["id"], "business_id": "demo-groomer"}
+    )
+    assert cancelled.status_code == 200, cancelled.text
+
+    ben = resolve_customer(client, phone="98765432", name="Ben Lim")
+    theirs = create_booking(client, ben["id"])  # takes the same 09:00-11:00 slot
+    assert theirs["start"] == old["start"]
+    _mark_busy_like_the_real_calendar_would(fake_calendar, theirs)
+
+    plain = _search(client)
+    assert "10:00" not in _starts(plain)  # Ben's booking + buffer really blocks it
+
+    stale = _search(client, exclude_booking_id=old["id"], customer_id=sarah["id"])
+    assert stale.status_code == 422, stale.text
+    assert "cancelled" in stale.json()["detail"]
