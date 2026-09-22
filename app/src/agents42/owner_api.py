@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from datetime import date as date_type
 from datetime import datetime, timedelta
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Request
@@ -53,6 +53,38 @@ def require_owner_auth(credentials: HTTPBasicCredentials = Depends(security)) ->
         raise HTTPException(status_code=401, detail="Incorrect credentials", headers={"WWW-Authenticate": "Basic"})
 
 
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def require_same_origin(request: Request) -> None:
+    """CSRF guard for the state-changing routes. Browsers cache Basic Auth
+    credentials and attach them to *any* request to this origin, including a
+    form POST from a hostile page - so without this, an owner who is logged
+    in and visits such a page could have bookings cancelled or slots blocked.
+
+    Standard fetch-metadata resource isolation: trust Sec-Fetch-Site when the
+    browser sends it (every current browser does), fall back to comparing
+    Origin against Host when it doesn't, and allow requests with neither -
+    those come from non-browser clients (curl, tests), which carry no ambient
+    credentials and so can't be CSRF'd. Safe methods are exempt: following a
+    link to the dashboard from elsewhere is fine.
+    """
+    if request.method in _SAFE_METHODS:
+        return
+    site = request.headers.get("sec-fetch-site")
+    if site is not None:
+        if site in ("same-origin", "none"):
+            return
+        raise HTTPException(status_code=403, detail="Cross-site request rejected")
+    origin = request.headers.get("origin")
+    if origin is None:
+        return  # non-browser client
+    # "null" Origin comes from sandboxed iframes and cross-site redirects,
+    # never from a same-origin form, so it falls through to the mismatch.
+    if urlsplit(origin).netloc != request.headers.get("host"):
+        raise HTTPException(status_code=403, detail="Cross-site request rejected")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not settings.owner_dashboard_password:
@@ -67,7 +99,7 @@ app = FastAPI(title="agents42 owner dashboard", lifespan=lifespan)
 # Everything except /health requires the owner password - unauthenticated
 # liveness checks match the customer-facing app's /health, and leak nothing
 # (just {"status": "ok"}).
-router = APIRouter(dependencies=[Depends(require_owner_auth)])
+router = APIRouter(dependencies=[Depends(require_owner_auth), Depends(require_same_origin)])
 
 
 def _redirect_home(message: str, level: str = "info") -> RedirectResponse:
