@@ -451,3 +451,55 @@ def test_customer_detail_business_scoping_404(client, owner_client, test_engine)
 
     response = owner_client.get(f"/customers/{customer['id']}", auth=AUTH)
     assert response.status_code == 404
+
+
+# --- CSRF: cross-site POSTs must be rejected ---------------------------------
+#
+# Browsers cache Basic Auth credentials and attach them to *any* request to
+# this origin, including a form POST from a hostile page. Without a
+# same-origin check, an owner who is logged in and visits such a page could
+# have bookings cancelled or slots blocked without knowing.
+
+
+def test_cross_site_post_rejected_by_sec_fetch_site(owner_client):
+    response = owner_client.post("/block-time", data={"start": "x", "end": "y"}, auth=AUTH, headers={"Sec-Fetch-Site": "cross-site"})
+    assert response.status_code == 403
+
+
+def test_same_site_subdomain_post_rejected(owner_client):
+    response = owner_client.post("/block-time", data={"start": "x", "end": "y"}, auth=AUTH, headers={"Sec-Fetch-Site": "same-site"})
+    assert response.status_code == 403
+
+
+def test_same_origin_post_allowed(owner_client, fake_calendar):
+    start, end = "2026-09-22T12:00:00+08:00", "2026-09-22T13:00:00+08:00"
+    response = owner_client.post(
+        "/block-time", data={"start": start, "end": end}, auth=AUTH, headers={"Sec-Fetch-Site": "same-origin"}
+    )
+    assert response.status_code in (200, 303)
+    assert response.status_code != 403
+
+
+def test_mismatched_origin_rejected_without_sec_fetch_site(owner_client):
+    response = owner_client.post("/block-time", data={"start": "x", "end": "y"}, auth=AUTH, headers={"Origin": "https://evil.example"})
+    assert response.status_code == 403
+
+
+def test_matching_origin_allowed_without_sec_fetch_site(owner_client):
+    host = owner_client.base_url.host
+    response = owner_client.post(
+        "/block-time", data={"start": "x", "end": "y"}, auth=AUTH, headers={"Origin": f"http://{host}"}
+    )
+    assert response.status_code != 403
+
+
+def test_cross_site_get_still_allowed(owner_client):
+    # Navigations to the dashboard from a link elsewhere are fine; only
+    # state-changing methods need the same-origin guard.
+    response = owner_client.get("/", auth=AUTH, headers={"Sec-Fetch-Site": "cross-site"})
+    assert response.status_code == 200
+
+
+def test_null_origin_rejected(owner_client):
+    response = owner_client.post("/block-time", data={"start": "x", "end": "y"}, auth=AUTH, headers={"Origin": "null"})
+    assert response.status_code == 403
