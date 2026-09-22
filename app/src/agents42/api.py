@@ -24,7 +24,7 @@ from agents42.db import get_session, run_migrations
 from agents42.integrations.google_calendar import CalendarClient, CalendarError, GoogleCalendarClient
 from agents42.models import Booking, Customer
 from agents42.profiles.loader import InvalidBusinessProfileError, UnknownBusinessError, load_business_profile
-from agents42.scheduling.service import filter_by_period, find_available_slots
+from agents42.scheduling.service import exclude_period, filter_by_period, find_available_slots
 
 logger = logging.getLogger("agents42.api")
 
@@ -448,17 +448,7 @@ def reschedule_booking(
     # Moving to the exact time the booking is already at is a legitimate
     # no-op (e.g. the customer re-confirming after list_bookings.py showed
     # them their current slot) - short-circuit before touching Calendar at
-    # all, rather than trying to guess which busy period is this booking's
-    # own event. Google's freebusy API only returns time ranges, not event
-    # identity, so filtering busy periods by matching start/end was a real
-    # risk: a different event that happens to share this exact start/end
-    # (another booking, or an unrelated calendar entry) would be
-    # indistinguishable from this one and could get silently hidden too.
-    # For a genuinely different time, the booking's own current slot is
-    # left in free/busy as-is - an overlapping target time will likely be
-    # rejected as self-conflicting, an accepted limitation for now (revisit
-    # with a per-event lookup via google_event_id if adjacent-time moves
-    # need to be supported later).
+    # all.
     if new_start == own_start:
         return BookingResponse(
             id=str(booking.id),
@@ -482,6 +472,16 @@ def reschedule_booking(
         busy = calendar_client.get_busy_periods(profile.calendar_id, query_start, query_end)
     except CalendarError as exc:
         raise HTTPException(status_code=502, detail=f"Calendar unavailable, booking not rescheduled: {exc}") from exc
+
+    # The booking's own Calendar event is still there and shows up in
+    # free/busy, so without this a move to any time overlapping its current
+    # slot (or its trailing buffer) would be refused as a conflict with
+    # itself - e.g. "push my 1pm back to 2pm". Free/busy returns merged time
+    # ranges with no event identity, so we can't drop "the booking's event";
+    # instead subtract exactly its own [start, end) from every range. Any
+    # neighbouring event coalesced into the same range survives as the
+    # leftover piece and still blocks, as it should.
+    busy = exclude_period(busy, own_start, own_end)
 
     # Recheck immediately before rescheduling, same reasoning as create_booking.
     valid_slots = find_available_slots(
