@@ -20,5 +20,17 @@ class Settings(BaseSettings):
     owner_dashboard_password: str = ""
     owner_dashboard_business_id: str = ""
 
+    # Owner escalation email notifications (integrations/email_notifier.py).
+    # All optional/defaulted empty - notifications are a best-effort side
+    # effect of creating an escalation, never a requirement for it to
+    # succeed. get_email_notifier() returns None if smtp_host is unset,
+    # which create_escalation treats as "notifications not configured".
+    owner_notification_email: str = ""
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+
 
 settings = Settings()
