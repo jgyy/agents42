@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from agents42.config import settings
 from agents42.customers.service import InvalidPhoneNumber, resolve_or_create_customer
 from agents42.db import get_session, run_migrations
+from agents42.integrations.email_notifier import EmailError, EmailNotifier, SmtpEmailNotifier
 from agents42.integrations.google_calendar import CalendarClient, CalendarError, GoogleCalendarClient
 from agents42.models import Booking, Customer, Escalation
 from agents42.profiles.loader import InvalidBusinessProfileError, UnknownBusinessError, load_business_profile
@@ -45,6 +46,23 @@ def _default_calendar_client() -> GoogleCalendarClient:
 
 def get_calendar_client() -> CalendarClient:
     return _default_calendar_client()
+
+
+@lru_cache
+def _default_email_notifier() -> SmtpEmailNotifier:
+    return SmtpEmailNotifier(
+        settings.smtp_host, settings.smtp_port, settings.smtp_username, settings.smtp_password, settings.smtp_from
+    )
+
+
+def get_email_notifier() -> EmailNotifier | None:
+    """None means "not configured" - owner_notification_email/smtp_host are
+    both optional (see config.py), and a business that hasn't set up
+    notifications yet must still be able to create escalations normally.
+    """
+    if not settings.smtp_host or not settings.owner_notification_email:
+        return None
+    return _default_email_notifier()
 
 
 @app.get("/health")
@@ -806,19 +824,68 @@ class EscalationResponse(BaseModel):
     status: str
 
 
+def _mask_phone_for_email(phone: str) -> str:
+    """Partial mask for the less-trusted email channel - the dashboard
+    already holds the full number for anyone who needs it there.
+    """
+    if len(phone) <= 7:
+        return phone
+    return f"{phone[:3]}{'*' * (len(phone) - 7)}{phone[-4:]}"
+
+
+def _send_escalation_email(
+    email_notifier: EmailNotifier, profile, escalation: Escalation, customer: Customer | None, booking: Booking | None
+) -> None:
+    lines = [f"{profile.name} has a customer escalation.", ""]
+    if customer is not None:
+        lines.append(f"Customer: {customer.name}")
+        lines.append(f"Phone: {_mask_phone_for_email(customer.phone)}")
+    else:
+        lines.append("Customer: (not yet identified)")
+    lines.append(f"Reason: {escalation.reason}")
+    if escalation.detail:
+        lines.append(f"Details: {escalation.detail}")
+    if booking is not None:
+        tz = ZoneInfo(profile.timezone)
+        start = _as_aware(booking.start_time, tz)
+        lines += ["", "Booking:", start.strftime("%d %b %Y, %I:%M %p"), booking.service]
+    lines += ["", "Please review the Attention queue in the owner dashboard."]
+
+    try:
+        email_notifier.send(
+            to_addr=settings.owner_notification_email,
+            subject=f"[Agents42] Customer needs attention - {profile.name}",
+            body="\n".join(lines),
+        )
+    except EmailError:
+        # Best-effort only - the escalation is already committed and
+        # visible in the dashboard's Attention queue regardless of whether
+        # this email goes out. Never let a notification failure look like
+        # the escalation itself failed.
+        logger.warning("Failed to send owner notification email for escalation %s.", escalation.id)
+
+
 @app.post("/escalations", response_model=EscalationResponse, status_code=201)
-def create_escalation(body: CreateEscalationRequest, session: Session = Depends(get_session)) -> EscalationResponse:
+def create_escalation(
+    body: CreateEscalationRequest,
+    session: Session = Depends(get_session),
+    email_notifier: EmailNotifier | None = Depends(get_email_notifier),
+) -> EscalationResponse:
     """Called by the front-desk skill whenever it escalates to a human
     (flag_attention.py) - this is the only thing that makes an escalation
     visible anywhere beyond the WhatsApp conversation itself. Feeds the
-    owner dashboard's Attention panel.
+    owner dashboard's Attention panel, and best-effort emails the owner if
+    notifications are configured (see get_email_notifier) - the dashboard
+    stays the source of truth regardless of whether the email succeeds.
     """
-    _load_profile(body.business_id)  # 404 on unknown business, same as every other endpoint
+    profile = _load_profile(body.business_id)  # 404 on unknown business, same as every other endpoint
     customer_uuid = _parse_uuid(body.customer_id, field="customer_id") if body.customer_id else None
     booking_uuid = _parse_uuid(body.booking_id, field="booking_id") if body.booking_id else None
-    if customer_uuid is not None and session.get(Customer, customer_uuid) is None:
+    customer = session.get(Customer, customer_uuid) if customer_uuid is not None else None
+    if customer_uuid is not None and customer is None:
         raise HTTPException(status_code=404, detail="Customer not found")
-    if booking_uuid is not None and session.get(Booking, booking_uuid) is None:
+    booking = session.get(Booking, booking_uuid) if booking_uuid is not None else None
+    if booking_uuid is not None and booking is None:
         raise HTTPException(status_code=404, detail="Booking not found")
 
     escalation = Escalation(
@@ -831,6 +898,10 @@ def create_escalation(body: CreateEscalationRequest, session: Session = Depends(
     )
     session.add(escalation)
     session.commit()
+
+    if email_notifier is not None:
+        _send_escalation_email(email_notifier, profile, escalation, customer, booking)
+
     return EscalationResponse(
         id=str(escalation.id),
         business_id=escalation.business_id,

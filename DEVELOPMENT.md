@@ -206,12 +206,41 @@ beyond the hackathon):
   network path. No domain name is available for this deployment to get a real Let's Encrypt
   certificate; a self-signed cert or restricting the Lightsail firewall rule's source IP (see
   DEPLOYMENT.md) are the cheap mitigations if this matters more later.
-- **No CSRF protection** on the dashboard's POST forms - accepted for a single trusted owner at
-  hackathon scale, not for a real multi-owner product.
 - **"Recently cancelled / changed" is a heuristic** (`updated_at != created_at`, or status
   `cancelled`), not a real reschedule-history record - there's no dedicated history table.
 - Only supports one business per deployment (`OWNER_DASHBOARD_BUSINESS_ID` is a single fixed
   value), matching this project's existing "one business per deployment" scope generally.
+
+(CSRF protection on the dashboard's state-changing routes *is* built - `owner_api.py`'s
+`require_same_origin` dependency rejects cross-site POSTs via the standard fetch-metadata
+resource isolation policy. Basic Auth alone wasn't enough: browsers attach cached credentials to
+any request to the origin, including a form POST from a hostile page.)
+
+## Owner escalation emails
+
+When the front-desk skill escalates (`flag_attention.py` -> `POST /escalations`), the owner can
+optionally be emailed - a deterministic side effect of creating the escalation, not an LLM in this
+path. The dashboard's Attention queue is the source of truth regardless: a missing/failed email
+never stops the escalation from being created or shown there (`get_email_notifier()` returns
+`None` if unconfigured, and `EmailError` is caught and logged, never raised back to the caller).
+
+Configure via `.env` (see `.env.example`): `OWNER_NOTIFICATION_EMAIL` (recipient) plus
+`SMTP_HOST`/`SMTP_PORT`/`SMTP_USERNAME`/`SMTP_PASSWORD`/`SMTP_FROM`. Both `OWNER_NOTIFICATION_EMAIL`
+and `SMTP_HOST` must be set for emails to send at all - leave either blank to disable notifications
+entirely and only use the dashboard.
+
+Plain SMTP+STARTTLS via `integrations/email_notifier.py`'s `SmtpEmailNotifier`, deliberately not a
+provider-specific API (Gmail API, SES SDK) reusing the Calendar integration's OAuth credentials -
+that credential is scoped to Calendar only, and widening it to also send mail (a different
+Google API scope, requiring redoing the interactive OAuth consent flow) would both broaden what a
+single leaked token could do and couple two unrelated integrations. A standalone SMTP app password
+on whatever mailbox the business already checks (e.g. the same Google account used for Calendar,
+via an [App Password](https://myaccount.google.com/apppasswords) rather than the OAuth token) gets
+the same practical convenience - reusing an inbox that's already checked - without that coupling.
+
+The email body is intentionally brief and partially redacts the customer's phone number
+(`_mask_phone_for_email` in `api.py`) - full customer details stay in the dashboard, which is
+reached over a password-gated connection; email is a less trusted channel by comparison.
 
 ## Testing strategy
 

@@ -8,8 +8,9 @@ from sqlalchemy.orm import sessionmaker
 
 import agents42.config as config_module
 from agents42.api import app as customer_app
-from agents42.api import get_calendar_client
+from agents42.api import get_calendar_client, get_email_notifier
 from agents42.db import get_session
+from agents42.integrations.email_notifier import EmailError
 from agents42.models import BlockedSlot, Booking, Escalation
 from agents42.owner_api import app as owner_app
 from agents42.scheduling.service import BusyPeriod
@@ -408,6 +409,82 @@ def test_escalation_unknown_booking_404(client):
         },
     )
     assert response.status_code == 404
+
+
+# --- Escalation owner-notification email ---------------------------------
+
+
+class FakeEmailNotifier:
+    """Stands in for SmtpEmailNotifier in tests - EmailNotifier is a
+    Protocol precisely so this substitution is possible without touching a
+    real SMTP account.
+    """
+
+    def __init__(self):
+        self.sent = []
+        self.fail = False
+
+    def send(self, to_addr, subject, body):
+        if self.fail:
+            raise EmailError("simulated SMTP failure")
+        self.sent.append({"to": to_addr, "subject": subject, "body": body})
+
+
+@pytest.fixture
+def fake_email_notifier(monkeypatch):
+    monkeypatch.setattr(config_module.settings, "owner_notification_email", "owner@example.com")
+    notifier = FakeEmailNotifier()
+    customer_app.dependency_overrides[get_email_notifier] = lambda: notifier
+    yield notifier
+    customer_app.dependency_overrides.pop(get_email_notifier, None)
+
+
+def test_escalation_sends_owner_email_when_configured(client, fake_email_notifier):
+    customer = resolve_customer(client, phone="91234567", name="Sarah Tan")
+    booking = create_booking(client, customer["id"])
+
+    response = client.post(
+        "/escalations",
+        json={
+            "business_id": "demo-groomer",
+            "customer_id": customer["id"],
+            "booking_id": booking["id"],
+            "reason": "Refund request",
+            "detail": "Customer says grooming was not satisfactory.",
+        },
+    )
+    assert response.status_code == 201, response.text
+
+    assert len(fake_email_notifier.sent) == 1
+    email = fake_email_notifier.sent[0]
+    assert email["to"] == "owner@example.com"
+    assert "needs attention" in email["subject"]
+    assert "Sarah Tan" in email["body"]
+    assert "+6591234567" not in email["body"]  # full number never sent over this channel
+    assert "4567" in email["body"]  # last 4 digits still shown, for a quick match against the dashboard
+    assert "Refund request" in email["body"]
+    assert "not satisfactory" in email["body"]
+    assert "full_grooming" in email["body"]
+
+
+def test_escalation_skips_email_when_not_configured(client):
+    # No fake_email_notifier fixture here - owner_notification_email/smtp_host
+    # are unset by default, so get_email_notifier() returns None.
+    response = client.post("/escalations", json={"business_id": "demo-groomer", "reason": "x"})
+    assert response.status_code == 201, response.text
+
+
+def test_escalation_creation_succeeds_even_when_email_fails(client, fake_email_notifier):
+    fake_email_notifier.fail = True
+    response = client.post("/escalations", json={"business_id": "demo-groomer", "reason": "x"})
+    assert response.status_code == 201, response.text  # the escalation itself must not be affected
+
+
+def test_mask_phone_for_email():
+    from agents42.api import _mask_phone_for_email
+
+    assert _mask_phone_for_email("+6591234567") == "+65****4567"
+    assert _mask_phone_for_email("123") == "123"  # too short to usefully mask - returned as-is
 
 
 # --- Customers --------------------------------------------------------------

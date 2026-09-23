@@ -48,12 +48,16 @@ in it. Don't confuse it with the still-not-built Owner Assistant Agent role abov
 exists precisely so the owner has a way to see and act on the same data an eventual Owner
 Assistant Agent would also need, without having to build that agent's own trust/authority model
 first. See DEVELOPMENT.md "Owner dashboard" for how to run it and its documented limitations
-(plain HTTP, single shared password, no CSRF protection, business profile editing not built yet).
+(plain HTTP, single shared password, business profile editing not built yet).
 
 The `flag_attention.py` script (table below) is what makes escalations visible there at all -
 before it existed, the front-desk skill's escalation step was purely conversational text that
 vanished once said; there was no way for the business to actually find out short of reading the
-WhatsApp conversation themselves.
+WhatsApp conversation themselves. The dashboard's Attention queue is the persistent record of
+this (survives regardless of whether anyone's watching); an optional owner email (see
+DEVELOPMENT.md "Owner escalation emails") is the active notification on top of it - same
+escalation, two different jobs. Other channels (WhatsApp, Slack, SMS, ...) could notify from the
+same `POST /escalations` event later without changing what's actually recorded.
 
 ## Reasoning loop and tool contract
 
@@ -71,7 +75,7 @@ conversation itself; there's no separate session/memory store yet.
 | `list_bookings.py --business --customer_id` | `GET /customers/{id}/bookings?business_id=` | upcoming confirmed bookings for *this business only* - what a reschedule/cancel flow needs to show |
 | `reschedule_booking.py --business --booking_id --customer_id --new_start` | `POST /bookings/{id}/reschedule` | same recheck + updates the booking's own start/end/Calendar event in place, not a new row |
 | `cancel_booking.py --business --booking_id --customer_id` | `POST /bookings/{id}/cancel` | deletes the Calendar event first, then marks the booking cancelled - fails closed (502) if the Calendar delete fails, rather than reporting success with a stale Calendar hold left behind |
-| `flag_attention.py --business [--customer_id] [--booking_id] --reason [--detail]` | `POST /escalations` | records an escalation for the owner dashboard's Attention panel; best-effort - a failure here doesn't change what the agent tells the customer |
+| `flag_attention.py --business [--customer_id] [--booking_id] --reason [--detail]` | `POST /escalations` | records an escalation for the owner dashboard's Attention panel, and best-effort emails the owner if notification settings are configured (see DEVELOPMENT.md "Owner escalation emails"); a failure at either step doesn't change what the agent tells the customer |
 
 `--business` on all three is not optional decoration - the backend rejects (404) a booking whose
 `business_id` doesn't match, even for the correct customer. A customer can have bookings with more

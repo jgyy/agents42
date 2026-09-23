@@ -113,6 +113,9 @@ public - a direct message, not a public channel.
      being able to just open a URL without needing SSH access at all.
   Ask a developer for the dashboard URL/IP and password rather than guessing - not published here,
   this repo is public.
+- **Owner escalation emails** (optional) - `OWNER_NOTIFICATION_EMAIL` + `SMTP_*` in `.env`, same
+  file as the dashboard password. Unset means escalations still work, just aren't emailed - see
+  DEVELOPMENT.md "Owner escalation emails".
 - **OpenClaw**, installed natively (not in Docker - see DEVELOPMENT.md), running as a systemd user
   service (`openclaw-gateway`) with lingering enabled so it survives SSH logout and reboots.
 - **`front-desk` skill**, installed from the repo, pointed at the local backend
