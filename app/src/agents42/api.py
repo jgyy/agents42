@@ -887,6 +887,17 @@ def create_escalation(
     booking = session.get(Booking, booking_uuid) if booking_uuid is not None else None
     if booking_uuid is not None and booking is None:
         raise HTTPException(status_code=404, detail="Booking not found")
+    if booking is not None:
+        # Same business_id/customer_id boundary enforced everywhere else in
+        # this file (reschedule/cancel/list_customer_bookings) - without
+        # it, a caller could attach a completely unrelated booking (a
+        # different business, or the same business but a different
+        # customer) to this escalation, and the owner notification email
+        # would then include that unrelated booking's details.
+        if booking.business_id != body.business_id or (
+            customer_uuid is not None and booking.customer_id != customer_uuid
+        ):
+            raise HTTPException(status_code=404, detail="Booking not found")
 
     escalation = Escalation(
         business_id=body.business_id,
