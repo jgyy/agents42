@@ -157,10 +157,31 @@ Calendar - the agent has no direct database or Calendar credentials of its own.
 Per `SKILL.md`, the agent stops and says it will have the business follow up (rather than
 attempting the action) when: the customer asks for a policy exception, refund, or discount; the
 message reads as a complaint or sensitive/urgent situation; the agent can't confidently understand
-the request after one clarifying question; or a script errors twice in a row. There is no
-owner-facing approval flow yet (that's the Owner Assistant Agent role, not built) - escalation
-today means "the agent disengages and says a human will follow up," not "a human approves the
+the request after one clarifying question; a script errors twice in a row; or a Calendar/server
+error interrupts a booking, reschedule, or cancel. In every case `SKILL.md` also requires calling
+`flag_attention.py` (`POST /escalations`), which persists an `Escalation` row the owner dashboard's
+Attention panel shows and (best-effort) sends the configured owner an email. There is still no
+owner-facing *approval* flow (that's the Owner Assistant Agent role, not built) - escalation means
+"the agent disengages, a record is created, and a human follows up," not "a human approves the
 next step inline."
+
+**Known gap: escalation-on-error is reliable, not deterministic.** The three Calendar/server-error
+trigger points in `SKILL.md` (booking, reschedule, cancel) work by the backend raising a `502`
+that the LLM reads, and the LLM being explicitly instructed to call `flag_attention.py` before
+telling the customer - verified against a real production incident (two genuine unhandled Calendar
+failures, see `google_calendar.py`'s exception-handling comments and `test_google_calendar.py`).
+That's a real reliability improvement over the previous state (the instruction lived in a separate
+section the model wasn't reliably connecting to these trigger points), but it is still
+LLM-mediated: if the model fails to call the script, no escalation is created, no email is sent,
+and nothing shows up on the dashboard, even though `SKILL.md` told the customer a human would
+follow up. The strictly stronger design would make this deterministic instead of prompted: have
+`api.py` itself create the `Escalation` row (and trigger the email) as a direct side effect of a
+Calendar/server error response, so the record exists regardless of what the LLM does next - the
+LLM would then only be relaying an outcome the backend already guaranteed, the same way booking
+facts themselves are never left to the LLM (see Guardrails above). Deliberately not built now:
+identified late, with only a few days left before submission, and the current fix is tested
+against the real failure that motivated it. Left here as the concrete next hardening step, not a
+currently-open defect.
 
 ## Current evaluation approach
 

@@ -317,6 +317,19 @@ failure (must not confirm a phantom booking), and double-booking under a rapid d
   window, not just a theoretical one, since FastAPI runs these sync endpoints in a thread pool.
   Not worth a Postgres advisory lock or per-slot mutex for a single-user hackathon demo; revisit
   before testing simultaneous customers.
+  Verified this does *not* cover the one case it looks like it might not: a single customer
+  booking two overlapping slots back-to-back in the same conversation (e.g. one appointment per
+  pet, both requested before either is confirmed) - a real incident looked at first like this
+  might be the cause. Reproduced directly: `search_availability` for a 2-hour service correctly
+  returns both a 9am and a 10am slot as available (neither is booked yet, so both genuinely are),
+  but booking 9am first and then immediately requesting 10am gets a clean `409 slot_unavailable`
+  from the recheck, and the following availability search correctly excludes both - because these
+  two script calls are sequential (the LLM calls `create_booking.py` once, waits for its
+  response, then calls it again), not concurrent, so the second call's fresh `get_busy_periods`
+  query does see the first call's just-created event. No "temp calendar slots"/hold mechanism
+  needed for this case - the existing recheck already handles it. The TOCTOU gap above is only
+  about genuinely concurrent requests (different customers, or duplicate client requests, racing
+  within the same window), which this is not.
 - **Partial-failure handling**: if the Calendar event is created but the DB write then fails,
   `api.py:create_booking` deletes the Calendar event and returns 500 rather than leaving an
   orphaned event with no corresponding booking record. If the Calendar deletion itself then fails,
