@@ -105,8 +105,17 @@ uvicorn agents42.api:app --reload
    that account's own calendar and set `calendar_id: primary` in the business profile.
 4. Run once, locally, with a browser available, from the repo root (with the venv above active):
    ```bash
+   GOOGLE_CALENDAR_CREDENTIALS_PATH=credentials/calendar_credentials.json \
+   GOOGLE_CALENDAR_TOKEN_PATH=credentials/calendar_token.json \
    python -m agents42.integrations.google_calendar_auth
    ```
+   **The env var overrides are required, not optional, if you already have a `.env` file** (you
+   will, once you've done the Docker setup above) - `.env` sets these two paths to the
+   *container* paths (`/app/credentials/...`) for `docker-compose.yml`'s benefit, and
+   `Settings` reads `.env` unconditionally regardless of whether you're running in Docker or
+   directly on the host, so running this script without the override looks for the credential
+   file at a path that only exists inside the container and fails with a confusing "missing OAuth
+   client secret" error even though the file is right there in `credentials/`.
    This opens a browser consent flow and writes `credentials/calendar_token.json`. It's an
    interactive step - don't run it from a headless shell/CI, it'll just hang waiting for the
    consent redirect.
@@ -118,6 +127,17 @@ uvicorn agents42.api:app --reload
 
 The access token auto-refreshes from the stored refresh token; re-run step 4 only if the refresh
 token itself is revoked.
+
+**A real way this happens, not just theoretical**: enabling or changing 2-Step Verification on
+the authorizing Google account silently revokes its existing OAuth grants, including this one -
+hit in production when 2-Step Verification was turned on for the same account used for Calendar,
+in order to generate a Gmail App Password for owner escalation emails (see "Owner escalation
+emails" below). Both `get_busy_periods`/`create_event`/`delete_event` now translate the resulting
+`google.auth.exceptions.RefreshError` into a normal `CalendarError` (502 "Calendar unavailable"),
+same as any other Calendar failure - but the underlying access is still actually broken until
+step 4 is re-run and the fresh token copied to every deployment using it (local + AWS). If
+Calendar starts failing right after a security-settings change on that account, this is the
+first thing to check, not a code bug.
 
 ## Running OpenClaw (native, not Docker)
 

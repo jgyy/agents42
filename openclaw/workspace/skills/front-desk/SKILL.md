@@ -150,9 +150,13 @@ above, which handles everything before this point).
      (`"error": "slot_unavailable"`), tell the customer that slot was just
      taken, and go back to step 4 for fresh options. Do not retry the same
      slot.
-   - If it returns a calendar/server error, tell the customer the booking
-     could not be confirmed and that you'll have the business follow up -
-     do not say "booked" and do not silently retry more than once.
+   - If it returns a calendar/server error, **run `scripts/flag_attention.py`** (see "Escalating
+     to the Business Owner" below - this is a script error, one of that section's trigger
+     conditions) before telling the customer the booking could not be confirmed and that you'll
+     have the business follow up - do not say "booked," do not silently retry more than once, and
+     do not skip the flag_attention.py call just because you're already about to say the standard
+     "business will follow up" line - saying that line without actually running the script means
+     the business never finds out at all.
    - On success, confirm with the exact service, date, time and
      `business_name` from *this script's own response* (it returns its own
      business name directly - no need to re-call get_business_info just for
@@ -221,10 +225,11 @@ and don't let them change the service through this flow.
      returns `"error": "slot_unavailable"`, tell the customer that time was
      just taken and go back to step 5 for fresh options - the original
      booking is still in effect at its original time, nothing was lost.
-   - If it returns a calendar/server error, tell the customer the reschedule
-     couldn't be completed and their original booking still stands at its
-     original time - do not say it moved, and do not silently retry more
-     than once.
+   - If it returns a calendar/server error, **run `scripts/flag_attention.py`** (see "Escalating
+     to the Business Owner" below) before telling the customer the reschedule couldn't be
+     completed and their original booking still stands at its original time - do not say it
+     moved, do not silently retry more than once, and do not skip the flag_attention.py call just
+     because you're already about to say the standard "business will follow up" line.
    - On success, confirm with the *old* time, the *new* time, and
      `business_name` from this script's own response, so the customer has a
      clear before/after, not just a new time in isolation.
@@ -239,10 +244,11 @@ cancel it" (not just "ok" to a vague question) before running the cancel script.
 
 5. **Cancel.** Once confirmed, run:
    `scripts/cancel_booking.py --business <business_id> --booking_id <id> --customer_id <id> --json`
-   - Only report it as cancelled if this returns `"status": "cancelled"`. If
-     it errors, tell the customer the cancellation couldn't be completed and
-     their booking still stands - do not say it's cancelled, and do not
-     silently retry more than once.
+   - Only report it as cancelled if this returns `"status": "cancelled"`. If it errors, do not
+     silently retry more than once; if it's still erroring, **run `scripts/flag_attention.py`**
+     (see "Escalating to the Business Owner" below) before telling the customer the cancellation
+     couldn't be completed, their booking still stands, and you'll have the business follow up -
+     do not say it's cancelled.
    - On success, confirm plainly what was cancelled (service, date, time),
      so there's no ambiguity about which booking it was.
 
