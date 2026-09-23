@@ -118,7 +118,7 @@
   <div class="panel">
     {% for e in open_escalations %}
       <div class="escalation">
-        <span>{{ e.created_at.strftime('%d %b, %H:%M') }}</span>
+        <span>{{ to_local(e.created_at).strftime('%d %b, %H:%M') }}</span>
         <span class="reason">⚠ {{ e.reason }}</span>
         {% if e.detail %}<span class="detail">— {{ e.detail }}</span>{% endif %}
         {% if e.customer %}<span class="who"><a href="/customers/{{ e.customer.id }}">{{ e.customer.name }}</a> (<a href="tel:{{ e.customer.phone }}">{{ e.customer.phone }}</a>)</span>{% endif %}
@@ -318,7 +318,7 @@
     <h3>Resolved escalations</h3>
     {% for e in resolved_escalations %}
       <div class="escalation">
-        <span>{{ e.created_at.strftime('%d %b, %H:%M') }}</span>
+        <span>{{ to_local(e.created_at).strftime('%d %b, %H:%M') }}</span>
         <span class="reason">{{ e.reason }}</span>
         {% if e.customer %}<span class="who">{{ e.customer.name }}</span>{% endif %}
       </div>

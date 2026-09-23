@@ -339,6 +339,48 @@ def test_resolve_escalation_marks_resolved_and_moves_to_activity(client, owner_c
         assert s.get(Escalation, uuid.UUID(escalation_id)).status == "resolved"
 
 
+def test_escalation_times_render_in_business_timezone(owner_client, test_engine):
+    """Postgres (psycopg) hands escalations.created_at back aware in the
+    connection's session zone - Etc/UTC in the stock postgres image - so a
+    request flagged at 10:15 in Singapore arrives as 02:15+00:00. The owner
+    must see their own clock time, same as bookings and blocked slots.
+
+    SQLite reads the column back naive, which can't reproduce that shape, so
+    the dashboard is served from a session whose identity map already holds
+    the escalations with the aware-UTC value Postgres would return.
+    """
+    utc = dt_module.timezone.utc
+    session = _session_for(test_engine)()
+    # Held in a local on purpose: the identity map only keeps weak references
+    # to clean objects, so without this they'd be collected after commit and
+    # the dashboard would reload them from SQLite as naive values instead.
+    escalations = [
+        Escalation(
+            business_id="demo-groomer",
+            reason="asked for a discount",
+            status="open",
+            created_at=dt_module.datetime(2026, 9, 23, 2, 15, tzinfo=utc),  # 10:15 SGT
+        ),
+        Escalation(
+            business_id="demo-groomer",
+            reason="complaint",
+            status="resolved",
+            created_at=dt_module.datetime(2026, 9, 22, 23, 40, tzinfo=utc),  # 07:40 SGT, next day
+        ),
+    ]
+    session.add_all(escalations)
+    session.commit()
+    owner_app.dependency_overrides[get_session] = lambda: session
+
+    dashboard = owner_client.get("/", auth=AUTH).text
+    session.close()
+
+    assert "23 Sep, 10:15" in dashboard  # open, under Attention
+    assert "23 Sep, 07:40" in dashboard  # resolved, under Activity
+    assert "23 Sep, 02:15" not in dashboard
+    assert "22 Sep, 23:40" not in dashboard  # wrong clock time *and* wrong day
+
+
 def test_escalation_unknown_business_404(client):
     response = client.post("/escalations", json={"business_id": "no-such-business", "reason": "x"})
     assert response.status_code == 404
