@@ -411,6 +411,45 @@ def test_escalation_unknown_booking_404(client):
     assert response.status_code == 404
 
 
+def test_escalation_booking_from_a_different_business_404(client, test_engine):
+    """Without this check, a caller could attach a completely unrelated
+    booking (different business) to an escalation - and the owner
+    notification email would then include that unrelated booking's
+    details, same bug class as every other business_id-scoping fix in
+    this project.
+    """
+    customer = resolve_customer(client)
+    booking = create_booking(client, customer["id"])
+
+    with _session_for(test_engine)() as s:
+        row = s.get(Booking, uuid.UUID(booking["id"]))
+        row.business_id = "some-other-business"
+        s.commit()
+
+    response = client.post(
+        "/escalations",
+        json={"business_id": "demo-groomer", "booking_id": booking["id"], "reason": "x"},
+    )
+    assert response.status_code == 404
+
+
+def test_escalation_booking_belongs_to_a_different_customer_404(client):
+    sarah = resolve_customer(client, phone="91234567", name="Sarah Tan")
+    sarahs_booking = create_booking(client, sarah["id"])
+    john = resolve_customer(client, phone="90009999", name="John Lim")
+
+    response = client.post(
+        "/escalations",
+        json={
+            "business_id": "demo-groomer",
+            "customer_id": john["id"],
+            "booking_id": sarahs_booking["id"],
+            "reason": "x",
+        },
+    )
+    assert response.status_code == 404
+
+
 # --- Escalation owner-notification email ---------------------------------
 
 

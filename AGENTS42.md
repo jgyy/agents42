@@ -202,10 +202,11 @@ not because of an outstanding model switch, just ordinary pre-demo diligence.
 
 ## Not in this slice
 
-Cut deliberately, per the original dev plan's "do not build too much yet": owner-facing
-commands/approvals, multiple staff or locations, payments, customer reminders/follow-ups,
-owner-triggered multi-customer disruption coordination (proposal's "Slice 3" example: staff
-unavailable -> find affected bookings -> propose alternatives -> owner approves -> notify
-customers - not to be confused with the single-booking, customer-initiated reschedule/cancel
-that *are* built, see "Agent roles" above), a web dashboard, and multiple businesses running
+Cut deliberately, per the original dev plan's "do not build too much yet": an owner-facing AI
+agent (a web dashboard *is* built - see "Owner dashboard" above - this is specifically about the
+still-unbuilt Owner Assistant Agent role), multiple staff or locations, payments, customer
+reminders/follow-ups, owner-triggered multi-customer disruption coordination (proposal's "Slice
+3" example: staff unavailable -> find affected bookings -> propose alternatives -> owner approves
+-> notify customers - not to be confused with the single-booking, customer-initiated
+reschedule/cancel that *are* built, see "Agent roles" above), and multiple businesses running
 concurrently in one deployment.
