@@ -135,8 +135,14 @@ like the hackathon gateway above, so this is simpler - no JSON5 patch needed.
    ```bash
    openclaw models set openrouter/deepseek/deepseek-v4-flash-0731
    ```
-5. **Switch back to the hackathon gateway before the actual demo/submission** - this is a
-   workaround for the rate limit, not the intended final model:
+5. **This is the model used for the actual submission** - originally a rate-limit workaround with
+   a plan to switch back to the hackathon gateway before the demo, but as of 2026-09-23 the
+   organiser still hasn't resolved the token/rate-limit issue despite repeated requests (a real
+   `⚠️ API rate limit reached` was hit again that day, on a routine one-off test call). A hard
+   rate limit mid-recording is a worse failure mode than a cheaper model, so this is now the
+   deliberate choice for the submission, not a stopgap - see DEPLOYMENT.md's "Model" entry. If
+   the organiser actually fixes it with enough runway left to re-verify before recording, switch
+   back with:
    ```bash
    openclaw models set hackathon-gateway/global.anthropic.claude-sonnet-4-5-20250929-v1:0
    ```

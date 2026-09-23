@@ -192,10 +192,13 @@ SOUL.md change. Ten scenarios so far:
   during development, see the file for what happened and how it was fixed
 
 Still a real gap relative to the judging rubric's "Observability & Evaluation" criterion: no
-tracing/run history beyond what `openclaw sessions`/`openclaw logs` already give for free, and
-the reliability numbers above haven't been re-confirmed since the hackathon gateway's rate limit
-interrupted the last full run (see DEPLOYMENT.md) - flagging that rather than pretending it's
-settled.
+tracing/run history beyond what `openclaw sessions`/`openclaw logs` already give for free. The
+reliability numbers above were captured against whichever model was configured at the time of
+each test (mostly OpenRouter/deepseek in later development, not the hackathon gateway - see
+DEPLOYMENT.md's "Model" entry for why deepseek is now the deliberate choice for the submission,
+not a pending switch). Worth one final full pass of the automated + manual `tests/agent_cases/`
+suite against whatever's actually configured before recording the demo, as a last general check -
+not because of an outstanding model switch, just ordinary pre-demo diligence.
 
 ## Not in this slice
 

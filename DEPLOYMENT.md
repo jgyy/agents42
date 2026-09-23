@@ -120,16 +120,19 @@ public - a direct message, not a public channel.
   service (`openclaw-gateway`) with lingering enabled so it survives SSH logout and reboots.
 - **`front-desk` skill**, installed from the repo, pointed at the local backend
   (`AGENTS42_API_BASE_URL=http://localhost:8090`, set via a systemd drop-in - see below).
-- **Model**: intended default is the hackathon's AWS Bedrock gateway
-  (`hackathon-gateway/global.anthropic.claude-sonnet-4-5-20250929-v1:0`), registered as a custom
-  OpenClaw provider with the API key in a systemd-scoped env var, never in `openclaw.json` or
-  git. **Currently running `openrouter/deepseek/deepseek-v4-flash-0731` instead** - swapped in as
-  a workaround while the hackathon gateway's rate limit was blocking testing. This is a
-  stopgap, not the intended final state - **switch back to the hackathon gateway before the real
-  demo/submission** (`openclaw models set hackathon-gateway/global.anthropic.claude-sonnet-4-5-20250929-v1:0`
-  on the instance). See OPERATION.md "Switching LLM providers/models" for the full recipe both
-  ways, and check `openclaw models list | grep default` on the instance for the actual
-  ground truth rather than trusting this doc, since it can drift.
+- **Model**: running `openrouter/deepseek/deepseek-v4-flash-0731`, registered as a custom OpenClaw
+  provider with the API key in a systemd-scoped env var, never in `openclaw.json` or git.
+  **Decided, not a stopgap**: this was originally swapped in as a workaround for the hackathon's
+  AWS Bedrock gateway (`hackathon-gateway/global.anthropic.claude-sonnet-4-5-20250929-v1:0`)
+  rate-limiting testing, with the plan to switch back before the demo/submission. As of
+  2026-09-23, the organiser still hasn't resolved the token/rate-limit issue despite repeated
+  requests, and a hard rate limit mid-demo (confirmed still happening - see the `⚠️ API rate
+  limit reached` error hit during a routine SSH-tunnel test that day) is a far worse failure mode
+  for a recorded video than a cheaper model. **Staying on OpenRouter/deepseek for the actual
+  submission** - re-evaluate only if the organiser actually fixes the hackathon gateway with
+  enough runway left to re-verify before recording. See OPERATION.md "Switching LLM
+  providers/models" for the recipe either way, and check `openclaw models list | grep default` on
+  the instance for the actual ground truth rather than trusting this doc, since it can drift.
 - **WhatsApp**: linked to the team's demo number (ask a developer for it - not published here,
   this repo is public), open to everyone (deliberate, for testing and the demo itself - no
   `dmPolicy` allowlist). This is the **only** instance that should have this number linked - see
