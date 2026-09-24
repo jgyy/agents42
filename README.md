@@ -118,8 +118,10 @@ The full system is deployed and reachable right now - no setup needed to test it
 - **Owner dashboard**: http://47.130.223.152:8091 (HTTP Basic Auth) - username `owner`,
   password `a-VdMltR6_L-blw6hcJiCg`. Shows today's/upcoming bookings, a customer directory,
   the escalation queue, and the business profile the agent itself reads from.
-  - **This is a judging-only credential**, rotated specifically for this README and separate
-    from the team's own operational password. It will be rotated again after judging.
+  - **This password was rotated specifically to publish it here** - the dashboard only supports
+    one password at a time (a single shared `OWNER_DASHBOARD_PASSWORD`, not per-user accounts),
+    so this replaced whatever the team was using before, it isn't a second credential alongside
+    it. Team members: use this one now. It'll be rotated again after judging.
   - **Known limitation, not an oversight**: this dashboard runs on plain HTTP with a shared
     password, no per-user login. That's an accepted gap for a hackathon-scale single-business
     deployment - the real fix (a domain name + HTTPS via a reverse proxy like Caddy) is
