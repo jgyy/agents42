@@ -27,3 +27,6 @@ postgres-data/
 
 *.log
 .DS_Store
+
+# Local recording workspace - raw clips/exports, not project source
+video/
