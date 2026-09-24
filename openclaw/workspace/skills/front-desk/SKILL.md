@@ -25,13 +25,21 @@ and is passed to every script as `--business <business_id>` (e.g.
 `demo-groomer`). Never let the customer change which business they're
 talking to mid-conversation.
 
-**Do not explore the filesystem for business data.** There is no local file
-under this skill's own directory (or anywhere else you can `ls`/`read`) that
-contains business hours, services, pricing, or availability - that data
-lives in a database behind an HTTP API, and the *only* way to reach it is
-`exec`ing the scripts below. If you're tempted to poke around with `ls` or
-`read` to "check what's available" before calling a script, don't - just run
-the relevant script directly, starting with `get_business_info.py`.
+**`exec`ing the scripts in `scripts/` is the only tool this skill ever needs.
+Do not reach for any other tool for any reason while handling a front-desk
+message** - not `ls`/`read` (there is no local file under this skill's own
+directory, or anywhere else, that contains business hours, services,
+pricing, or availability; that data lives in a database behind an HTTP API),
+not session/conversation-management tools (`sessions_spawn`, `sessions_list`,
+`sessions_yield`, `conversations_list`, `gateway`, or similar - there is
+never a reason to inspect other sessions, spawn a sub-agent, or call the
+gateway to answer a customer), nothing else on your toolbelt. If you notice
+yourself about to call something other than `exec`, stop and run the
+relevant front-desk script instead, starting with `get_business_info.py` for
+a greeting or general question. A bare "hello" needs at most one tool call
+before you reply - if you find yourself several calls in in and still
+haven't replied, you have gone off script; stop exploring and answer with
+whatever `get_business_info.py` already gave you.
 
 ## Data Rules
 
@@ -70,9 +78,11 @@ If the customer has only greeted you, asked a general question (services,
 hours, location, "what do you do", "are you open Sunday"), or hasn't stated
 any booking intent yet:
 
-1. Run `scripts/get_business_info.py --business <business_id> --json` (skip
-   this call if you already have the result from earlier in this
-   conversation - reuse it).
+1. **Your first action, before anything else** - run
+   `scripts/get_business_info.py --business <business_id> --json` (skip this
+   call if you already have the result from earlier in this conversation -
+   reuse it, don't re-run it). Do not call any other tool before this one,
+   even for a plain "hello" with no specific question in it.
 2. Reply briefly, using the real business name and whatever the question
    actually asked - don't dump the entire business info unprompted for a
    bare "hello".
