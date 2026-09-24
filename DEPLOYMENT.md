@@ -215,12 +215,65 @@ deleted (`sessions delete` refuses it - it's the protected default), but it can 
 session key first (cheap, isolates "is the fix right" from "is history poisoning it"), then
 compact `agent:main:main` before declaring it fixed for real users.
 
-**A model can quietly deviate from the documented tool-call procedure.** The front-desk skill
-hit exactly this: on a real (not CLI-test) session, the model tried `ls`/`read` to hunt for
-business data on disk instead of running `get_business_info.py`, guessing a path that never
-existed. SKILL.md now explicitly forbids filesystem exploration as a fallback (see the fix
-commit) - if you add a new script, add an equally explicit "don't do X instead" line, don't
-assume the model will infer it from "use the script" alone.
+**A model can quietly deviate from the documented tool-call procedure - and denying it one
+wrong tool doesn't mean it stops wandering, it may just wander somewhere else.** The front-desk
+skill hit this twice. First: on a real (not CLI-test) session, the model tried `ls`/`read` to
+hunt for business data on disk instead of running `get_business_info.py`, guessing a path that
+never existed. SKILL.md forbade filesystem exploration as a fallback - that fixed *that* symptom.
+Second, found 2026-09-25 while collecting evaluation evidence for the submission video: a bare
+"hello" was still occasionally taking 170-220 seconds. Traced turn-by-turn with `openclaw
+sessions tail`: the model was still calling `ls`/`read` before ever calling `exec`, despite the
+existing prohibition already living in two unconditionally-loaded files (SKILL.md and AGENTS.md).
+Denying `ls`/`read` at the OpenClaw config level (`agents.entries.main.tools.deny`) stopped those
+two calls specifically - but the model just pivoted to *other* irrelevant tools instead
+(`gateway`, `conversations_list`, `sessions_list`), so a "hello" still took 217 seconds once.
+Narrowing the whole tool profile (`tools.profile: "messaging"`, ~58 tools down to 17) fixed speed
+dramatically (20s) - but in one test the model tried `sessions_spawn`/`sessions_yield` instead of
+`exec` and the reply came back **completely empty**, which is strictly worse than slow. Reverted
+that change rather than risk it landing during recording. The fix that actually shipped
+(`fix/greeting-tool-exploration-reliability`) is prompt-only: broadened the filesystem-exploration
+rule into a general "`exec` is the only tool this skill ever needs, for any reason" rule naming
+the specific tools observed in the wild, and made `get_business_info.py` explicitly the required
+*first action* for a greeting, before anything else. Verified: the 5-run greeting-reliability
+sweep went from 4/5 (one 120s timeout) to 5/5 after deploying it. Two lessons, not one: a
+documented instruction living in an always-loaded file is not the same as a reliably-followed
+one - naming the specific wrong tools mattered more than restating the rule abstractly. And a
+faster fix isn't automatically a safer one - the tool-profile change was faster *and* broke a
+real case; reversibility and testing the actual failure mode mattered more than the speed win.
+If you add a new script, add an equally explicit "don't do X instead" line, don't assume the
+model will infer it from "use the script" alone - and don't assume denying one specific wrong
+behavior means the model won't find a different wrong one to replace it with.
+
+**A test can fail its own precondition without the underlying system being wrong.**
+`tests/agent_cases/09_identity_switch.md` started failing on 2026-09-25 once the greeting-timeout
+bug above stopped masking it - not with the expected "no escalation" failure, but by not
+escalating at all. Investigated rather than assumed: turn 0 asked about an appointment using a
+brand-new phone number, and per SKILL.md's own documented "Manage an Existing Booking" step 1, a
+phone with `needs_name: true` never gets a customer record created - the flow just says "no
+booking on file" and stops. Confirmed directly against the database: no customer row existed
+after turn 0. That means the escalation rule's actual precondition ("once a customer is resolved
+in this session") never triggered, so turn 1 wasn't a switch away from anything - the test's own
+scenario never set up what it claimed to test. Verified the real system behavior by replaying the
+identical two-turn attack against a genuinely pre-existing customer with a real booking (seeded
+and cleaned up by hand, not through the test harness): refused the switch, escalated to the
+owner, left the real booking untouched - exactly the documented, intended behavior. Fixed the
+test itself (`fix/identity-switch-test-precondition`) so turn 0 states a name and clear booking
+intent, which actually creates the customer (verified against the database) before turn 1 runs.
+The guardrail was correct the whole time; the test asserting it wasn't wasn't actually exercising
+it. Don't trust a test's own docstring about what it covers - check what it actually triggers.
+
+**These two findings only exist because the design keeps the LLM's job small.** Both incidents
+above are about the model wandering when the plan is ambiguous, not about it getting a booking,
+price, or availability fact wrong - that class of error structurally can't happen here, since
+those facts never come from the model in the first place (see AGENTS42.md's Guardrails). The
+model's only real job is deciding *which* narrow, typed script to call and relaying its result -
+smaller surface area for exactly this kind of failure than a system that trusted the LLM with
+more. Worth remembering when reading either finding above: **the specific failure mode is a
+property of the exact model in use** (`openrouter/deepseek/deepseek-v4-flash-0731` for both
+incidents - see this doc's "Model" entry), not a fixed property of the architecture. A different
+model might wander less, or wander differently; the deny-list/profile/prompt fixes here were
+tuned against what this specific model actually did, verified by tracing it, not assumed from
+first principles.
 
 **Same WhatsApp number, two gateways = duplicate/conflicting replies.** WhatsApp allows multiple
 simultaneous linked devices per account. If both a local dev machine and a deployed instance are
