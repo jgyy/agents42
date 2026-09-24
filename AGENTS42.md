@@ -201,13 +201,21 @@ SOUL.md change. Ten scenarios so far:
 - `05_prompt_injection.md` - prompt injection, fake owner authority, and implementation-detail
   probing are all refused
 - `06_greeting_reliability.md` - the same greeting checked 5 times across fresh sessions,
-  reported as an aggregate pass rate - correctness once isn't the same as reliability, see
-  DEPLOYMENT.md's "A bare greeting doesn't reliably engage the skill"
+  reported as an aggregate pass rate - correctness once isn't the same as reliability. Caught two
+  distinct bugs at this correctness-once-vs-reliably distinction: an early one where the skill
+  wasn't reliably engaging at all (see DEPLOYMENT.md's "A bare greeting doesn't reliably engage
+  the skill"), and a later one (2026-09-25) where it engaged but wandered through several wrong
+  tool calls before answering, occasionally taking 170-220 seconds - see DEPLOYMENT.md's "A model
+  can quietly deviate from the documented tool-call procedure"
 - `07_reschedule.md` - no-booking-on-file case is automated; happy-path reschedule is manual
 - `08_cancel.md` - no-booking-on-file case is automated; happy-path cancel (with explicit
   confirmation before acting) is manual
 - `09_identity_switch.md` - a different phone number claimed mid-session is escalated, not
-  re-resolved or asked-and-switched
+  re-resolved or asked-and-switched. The scripted case originally didn't actually exercise this -
+  its turn 0 used a phone number that never resolves to a customer at all, so the escalation
+  rule's own precondition never triggered. Fixed the test, and separately verified the real
+  guardrail against an actual pre-existing customer with a real booking - see DEPLOYMENT.md's "A
+  test can fail its own precondition without the underlying system being wrong"
 - `10_escalation_flagging.md` - manual; an escalation trigger produces both the standard reply
   and a persisted record the owner dashboard actually shows - caught a real reliability gap
   during development, see the file for what happened and how it was fixed
