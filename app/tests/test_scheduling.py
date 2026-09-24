@@ -1,6 +1,8 @@
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from agents42.scheduling.service import BusyPeriod, filter_by_period, find_available_slots, is_valid_slot
 
 TZ = ZoneInfo("Asia/Singapore")
@@ -79,6 +81,25 @@ def test_find_available_slots_excludes_past_slots():
     )
     assert all(s.start >= dt(11, 30) for s in slots)
     assert dt(10) not in [s.start for s in slots]
+
+
+@pytest.mark.parametrize("interval", [0, -60])
+def test_find_available_slots_rejects_non_positive_interval(interval):
+    # The profile loader already rejects these; this guards the loop itself,
+    # which would otherwise never advance (0) or walk backwards until the
+    # datetime underflows (< 0).
+    with pytest.raises(ValueError, match="slot_interval_minutes"):
+        find_available_slots(
+            DAY,
+            time(9),
+            time(18),
+            existing_events=[],
+            duration_minutes=120,
+            buffer_minutes=60,
+            slot_interval_minutes=interval,
+            timezone=TZ,
+            now=dt(0),
+        )
 
 
 def test_filter_by_period():

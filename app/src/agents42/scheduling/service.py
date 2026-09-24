@@ -85,6 +85,11 @@ def find_available_slots(
     boundaries, within [opening_time, closing_time) on `date_`, that satisfies
     `is_valid_slot` against `existing_events` and is not already in the past.
     """
+    if slot_interval_minutes <= 0:
+        # The loop below would never advance (0), or walk backwards until the
+        # datetime underflows (< 0). BusinessProfile already rejects both.
+        raise ValueError(f"slot_interval_minutes must be positive, got {slot_interval_minutes}")
+
     duration = timedelta(minutes=duration_minutes)
     day_open = datetime.combine(date_, opening_time, tzinfo=timezone)
     day_close = datetime.combine(date_, closing_time, tzinfo=timezone)

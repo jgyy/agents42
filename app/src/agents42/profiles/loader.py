@@ -16,8 +16,11 @@ from agents42.config import settings
 
 
 class ServiceProfile(BaseModel):
-    duration_minutes: int
-    turnaround_minutes: int
+    # Bounded so a typo fails at load instead of silently breaking search:
+    # duration <= 0 yields zero slots ("fully booked"), and turnaround < 0
+    # shrinks the buffer below zero, offering slots that overlap a booking.
+    duration_minutes: int = Field(gt=0)
+    turnaround_minutes: int = Field(ge=0)  # 0 = back-to-back bookings
     display_name: str | None = None  # falls back to a humanized key if unset - see api.py
     price_from: str | None = None  # e.g. "S$60" - a starting estimate, not a computed price
 
@@ -66,10 +69,16 @@ class BusinessProfile(BaseModel):
     opening_hours: dict[str, OpeningHours]  # keyed by lowercase weekday name, e.g. "monday"
     required_customer_fields: list[str] = Field(default_factory=lambda: ["name", "phone"])
     optional_customer_fields: list[str] = Field(default_factory=list)
-    slot_interval_minutes: int = 60
+    # find_available_slots steps by this, so 0 would never advance (hanging
+    # the request while it appends the same slot until memory runs out) and
+    # a negative step would walk backwards until the datetime underflows -
+    # verified: 3.8s at -60, ~4 minutes at -1, then an unhandled 500.
+    slot_interval_minutes: int = Field(default=60, gt=0)
     about: str | None = None  # credentials/qualifications/appointment-policy blurb, relayed verbatim
     pricing_note: str | None = None  # e.g. "exact cost to be advised" - shown alongside price_from figures
-    max_advance_days: int | None = None  # None = no limit; e.g. 90 for "up to 3 months ahead"
+    # None = no limit; e.g. 90 for "up to 3 months ahead", 0 for today only.
+    # Negative would reject every date, today included.
+    max_advance_days: int | None = Field(default=None, ge=0)
 
 
 class UnknownBusinessError(LookupError):
