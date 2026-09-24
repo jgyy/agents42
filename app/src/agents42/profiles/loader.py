@@ -10,7 +10,7 @@ from datetime import time
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from agents42.config import settings
 
@@ -36,6 +36,23 @@ class AddOnProfile(BaseModel):
 class OpeningHours(BaseModel):
     open: time
     close: time
+
+    @field_validator("open", "close", mode="before")
+    @classmethod
+    def _reject_yaml_sexagesimal(cls, value):
+        """PyYAML follows YAML 1.1, where an unquoted 18:00 is the base-60
+        integer 1080 (and 9:30 is 570). Left alone, pydantic reads that int
+        as seconds since midnight - close becomes 00:18 UTC, and every day
+        silently has zero slots, which looks exactly like "fully booked".
+        Reject rather than convert back: 18:00, 18:00:00 and a literal 1080
+        all arrive as indistinguishable ints, so any conversion is a guess.
+        """
+        if isinstance(value, (int, float)):
+            raise ValueError(
+                f"got the number {value!r}, not a time - quote opening hours in YAML, e.g. "
+                'close: "18:00" (unquoted, YAML reads h:mm as base 60, so 18:00 becomes 1080)'
+            )
+        return value
 
 
 class BusinessProfile(BaseModel):
