@@ -17,7 +17,7 @@ on/moving/cancelling an existing booking. Don't reserve it for messages that
 explicitly mention booking - a greeting with no stated intent yet is still
 this skill's job (see "Greeting / General Enquiry" below), just a different
 path through it.
-It is not a callable tool itself - follow it via `exec` calls to the scripts
+This file describes a workflow - follow it via `exec` calls to the scripts
 in `scripts/`, exactly as described below.
 
 The business this conversation is for is fixed per WhatsApp number/session

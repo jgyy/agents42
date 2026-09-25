@@ -56,8 +56,8 @@ openclaw agent --model openrouter/anthropic/claude-sonnet-4.6 -m "test message"
 ```
 
 **Adding a new provider you haven't configured yet** (e.g. the hackathon's AWS gateway, or your
-own key for a different model) isn't a `models set` - that only switches between providers
-already configured. The recipe below adds a custom provider and was verified live against the
+own key for a different model) needs more than `models set`, which only switches between
+providers already configured. The recipe below adds a custom provider and was verified live against the
 hackathon gateway - **never put the raw API key in a repo file**; it goes in an env var scoped to
 the gateway service only, referenced by name from the config.
 
@@ -140,7 +140,7 @@ like the hackathon gateway above, so this is simpler - no JSON5 patch needed.
    organiser still hasn't resolved the token/rate-limit issue despite repeated requests (a real
    `⚠️ API rate limit reached` was hit again that day, on a routine one-off test call). A hard
    rate limit mid-recording is a worse failure mode than a cheaper model, so this is now the
-   deliberate choice for the submission, not a stopgap - see DEPLOYMENT.md's "Model" entry. If
+   deliberate choice for the submission - see DEPLOYMENT.md's "Model" entry. If
    the organiser actually fixes it with enough runway left to re-verify before recording, switch
    back with:
    ```bash
@@ -225,8 +225,8 @@ Console -> APIs & Services -> OAuth consent screen -> Test users), then retry.
 **Backend returns 502 "Calendar unavailable"** - either `credentials/calendar_token.json` doesn't
 exist yet (run the OAuth flow, SETUP.md step 3) or the refresh token was revoked (Google account
 security settings -> Third-party access -> revoke, then just re-run the OAuth flow to get a fresh
-one). This is working as intended, not a bug - the backend refuses to confirm a booking it can't
-verify. Confirm with `docker compose logs app`.
+one). This is expected: the backend refuses to confirm a booking it can't verify. Confirm with
+`docker compose logs app`.
 
 **Agent gives a generic/escalation reply instead of using the skill** - check
 `openclaw skills list` shows `front-desk` as "✓ ready". If you edited `SKILL.md` or the scripts,

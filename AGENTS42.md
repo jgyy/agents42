@@ -43,8 +43,8 @@ since none of these actions need an authority level different from booking itsel
 today's/upcoming bookings, a manual reschedule/cancel action, blocking off unavailable time, an
 "Attention" queue of escalations, a searchable customer directory with per-customer booking
 history, and a read-only view of the business profile the front-desk agent itself reads facts
-from. **This is a human-facing read/write UI, not an LLM agent** - no model is involved anywhere
-in it. Don't confuse it with the still-not-built Owner Assistant Agent role above; the dashboard
+from. **No model is involved anywhere in it - it's a human-facing read/write UI.** Don't confuse
+it with the Owner Assistant Agent role above, which isn't built yet; the dashboard
 exists precisely so the owner has a way to see and act on the same data an eventual Owner
 Assistant Agent would also need, without having to build that agent's own trust/authority model
 first. See DEVELOPMENT.md "Owner dashboard" for how to run it and its documented limitations
@@ -112,15 +112,15 @@ Calendar - the agent has no direct database or Calendar credentials of its own.
   DEVELOPMENT.md "Cautions" for the exact behaviour.
 - **Phone-based identity only.** Two customers are only ever considered "the same" by normalized
   phone number (`customers/service.py`), never by the LLM's judgement of similar names.
-- **Business-scoped by code, not just by prompt - with one caveat.** A WhatsApp session is fixed
-  to one business, but that was previously only a prompting assumption for reschedule/cancel/list
-  - the backend now rejects (404) any booking lookup, reschedule, or cancel whose `business_id`
-  doesn't match the caller's, even for the correct customer. See the tool contract table above.
+- **Business-scoped by code, with one caveat.** A WhatsApp session is fixed to one business, but
+  that was previously only a prompting assumption for reschedule/cancel/list - the backend now
+  rejects (404) any booking lookup, reschedule, or cancel whose `business_id` doesn't match the
+  caller's, even for the correct customer. See the tool contract table above.
   The precise guarantee this gives today: **it prevents accidental cross-business operations,
   provided the agent passes its configured `business_id` correctly** - `business_id` itself is
-  still an LLM-supplied script argument (`--business <id>`, per SKILL.md), not something
-  structurally bound to the WhatsApp number the same way `booking.customer_id` is bound to a
-  phone via `resolve_customer.py`. That's adequate for this deployment (one business, one
+  still an LLM-supplied script argument (`--business <id>`, per SKILL.md). Unlike
+  `booking.customer_id`, which is bound to a phone via `resolve_customer.py`, nothing structurally
+  binds `business_id` to the WhatsApp number itself. That's adequate for this deployment (one
   `businesses/*.yaml` file, nothing to confuse it with). Before hosting more than one business in
   a single deployment, bind `business_id` server-side per agent/session instead of accepting it
   as a request parameter at all - the same class of fix as the identity gap below, for the same
@@ -149,8 +149,8 @@ Calendar - the agent has no direct database or Calendar credentials of its own.
   gateway knows the real sender, the model is deliberately not handed it. A real fix means writing
   an inbound-hook plugin (with the necessary opt-in) that threads the verified number into the
   exec environment for these scripts directly - e.g. an env var `resolve_customer.py` prefers
-  over any LLM-supplied `--phone` - not a bigger prompt-instruction change. Not yet built; see
-  DEVELOPMENT.md "Cautions" for the fuller investigation trail.
+  over any LLM-supplied `--phone`. A scoped code change. Not yet built; see DEVELOPMENT.md
+  "Cautions" for the fuller investigation trail.
 
 ## Human-in-the-loop / escalation
 
@@ -223,11 +223,10 @@ SOUL.md change. Ten scenarios so far:
 Still a real gap relative to the judging rubric's "Observability & Evaluation" criterion: no
 tracing/run history beyond what `openclaw sessions`/`openclaw logs` already give for free. The
 reliability numbers above were captured against whichever model was configured at the time of
-each test (mostly OpenRouter/deepseek in later development, not the hackathon gateway - see
-DEPLOYMENT.md's "Model" entry for why deepseek is now the deliberate choice for the submission,
-not a pending switch). Worth one final full pass of the automated + manual `tests/agent_cases/`
-suite against whatever's actually configured before recording the demo, as a last general check -
-not because of an outstanding model switch, just ordinary pre-demo diligence.
+each test (mostly OpenRouter/deepseek in later development - see DEPLOYMENT.md's "Model" entry
+for why deepseek is the deliberate choice for the submission). Worth one final full pass of the
+automated + manual `tests/agent_cases/` suite against whatever's actually configured before
+recording the demo, as ordinary pre-demo diligence.
 
 ## Not in this slice
 

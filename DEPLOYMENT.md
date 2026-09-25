@@ -100,7 +100,7 @@ public - a direct message, not a public channel.
 - **Docker Compose** (FastAPI + Postgres + owner dashboard) - same `docker-compose.yml` as local.
   The customer-facing `app` and `postgres` ports are bound to `127.0.0.1` only (verified
   unreachable from the public internet). Real random Postgres password generated on first deploy,
-  not the `change-me` placeholder. `owner-dashboard` is the one deliberate exception - see below.
+  replacing the `change-me` placeholder. `owner-dashboard` is the one deliberate exception - see below.
 - **Owner dashboard**, port 8091, gated by `OWNER_DASHBOARD_PASSWORD` (HTTP Basic Auth). Two ways
   to actually reach it - see DEVELOPMENT.md "Owner dashboard" for the full comparison:
   1. **Direct HTTP** - requires a manual Lightsail firewall rule (not done via SSH): instance page
@@ -235,19 +235,19 @@ that change rather than risk it landing during recording. The fix that actually 
 rule into a general "`exec` is the only tool this skill ever needs, for any reason" rule naming
 the specific tools observed in the wild, and made `get_business_info.py` explicitly the required
 *first action* for a greeting, before anything else. Verified: the 5-run greeting-reliability
-sweep went from 4/5 (one 120s timeout) to 5/5 after deploying it. Two lessons, not one: a
-documented instruction living in an always-loaded file is not the same as a reliably-followed
-one - naming the specific wrong tools mattered more than restating the rule abstractly. And a
-faster fix isn't automatically a safer one - the tool-profile change was faster *and* broke a
-real case; reversibility and testing the actual failure mode mattered more than the speed win.
+sweep went from 4/5 (one 120s timeout) to 5/5 after deploying it. Two lessons here. First: a
+documented instruction living in an always-loaded file can still go unfollowed - naming the
+specific wrong tools mattered more than restating the rule abstractly. Second: speed and safety
+are separate axes - the tool-profile change was faster *and* broke a real case; reversibility and
+testing the actual failure mode mattered more than the speed win.
 If you add a new script, add an equally explicit "don't do X instead" line, don't assume the
 model will infer it from "use the script" alone - and don't assume denying one specific wrong
 behavior means the model won't find a different wrong one to replace it with.
 
 **A test can fail its own precondition without the underlying system being wrong.**
 `tests/agent_cases/09_identity_switch.md` started failing on 2026-09-25 once the greeting-timeout
-bug above stopped masking it - not with the expected "no escalation" failure, but by not
-escalating at all. Investigated rather than assumed: turn 0 asked about an appointment using a
+bug above stopped masking it - the timeouts had been hiding a real gap: turn 1 completed but
+simply never escalated. Investigated rather than assumed: turn 0 asked about an appointment using a
 brand-new phone number, and per SKILL.md's own documented "Manage an Existing Booking" step 1, a
 phone with `needs_name: true` never gets a customer record created - the flow just says "no
 booking on file" and stops. Confirmed directly against the database: no customer row existed
@@ -259,18 +259,19 @@ and cleaned up by hand, not through the test harness): refused the switch, escal
 owner, left the real booking untouched - exactly the documented, intended behavior. Fixed the
 test itself (`fix/identity-switch-test-precondition`) so turn 0 states a name and clear booking
 intent, which actually creates the customer (verified against the database) before turn 1 runs.
-The guardrail was correct the whole time; the test asserting it wasn't wasn't actually exercising
-it. Don't trust a test's own docstring about what it covers - check what it actually triggers.
+The guardrail was correct the whole time - the test asserting otherwise wasn't actually
+exercising it. Don't trust a test's own docstring about what it covers - check what it actually
+triggers.
 
 **These two findings only exist because the design keeps the LLM's job small.** Both incidents
-above are about the model wandering when the plan is ambiguous, not about it getting a booking,
-price, or availability fact wrong - that class of error structurally can't happen here, since
-those facts never come from the model in the first place (see AGENTS42.md's Guardrails). The
-model's only real job is deciding *which* narrow, typed script to call and relaying its result -
-smaller surface area for exactly this kind of failure than a system that trusted the LLM with
-more. Worth remembering when reading either finding above: **the specific failure mode is a
-property of the exact model in use** (`openrouter/deepseek/deepseek-v4-flash-0731` for both
-incidents - see this doc's "Model" entry), not a fixed property of the architecture. A different
+above are about the model wandering when the plan is ambiguous. A booking, price, or availability
+fact coming out wrong is a structurally different, more severe class of error that can't happen
+here, since those facts never come from the model in the first place (see AGENTS42.md's
+Guardrails). The model's only real job is deciding *which* narrow, typed script to call and
+relaying its result - smaller surface area for exactly this kind of failure than a system that
+trusted the LLM with more. Worth remembering when reading either finding above: **the specific
+failure mode is a property of the exact model in use** (`openrouter/deepseek/deepseek-v4-flash-0731`
+for both incidents - see this doc's "Model" entry), separate from the architecture itself. A different
 model might wander less, or wander differently; the deny-list/profile/prompt fixes here were
 tuned against what this specific model actually did, verified by tracing it, not assumed from
 first principles.
@@ -309,7 +310,7 @@ both `SOUL.md` and `AGENTS.md`'s "Business facts" section - deliberate redundanc
 highest-stakes failure mode observed so far), but a full reliability re-check was cut short by
 hitting the hackathon gateway's rate limit from the testing burst itself - space out any further
 live testing
-(one message, wait for the reply, then the next - not a rapid batch) and re-run
+(one message at a time, waiting for each reply, never a rapid batch) and re-run
 `tests/agent_cases/01_business_info.md` a handful of times before trusting this for a demo.
 
 **Rapid-fire messages can also trigger a separate WhatsApp delivery bug.** Independent of the
