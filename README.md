@@ -2,8 +2,7 @@
 
 An AI front-desk agent for appointment-based SMEs, built for the **NUS-ISS Show Me Your Agents
 Hackathon 2026**. Customers message the business on WhatsApp; the agent identifies them, checks
-real availability on the business's Google Calendar, and books the appointment - without
-inventing prices, hours, or availability itself.
+real availability on the business's Google Calendar, and books the appointment.
 
 ## Try it live (for judges)
 
@@ -53,7 +52,7 @@ architecture and guardrails, and [DEVELOPMENT.md](DEVELOPMENT.md) for how to run
 - `app/src/agents42/` - the deterministic backend (FastAPI + PostgreSQL): customer lookup,
   business-rule-driven scheduling, and Google Calendar integration. No LLM involvement.
 - `businesses/*.yaml` - one file per business (services, hours, timezone, calendar). Adding a
-  new business is "add a YAML file", not "edit the core".
+  new business process will be "add a YAML file".
 - `openclaw/workspace/skills/front-desk/` - the OpenClaw skill: `SKILL.md` (generic agent rules,
   business-agnostic) plus thin CLI scripts that call the FastAPI backend and print JSON, matching
   how OpenClaw actually invokes skills (`exec` a script, parse its JSON output).
@@ -133,6 +132,30 @@ off unavailable time, an escalation queue, a searchable customer directory with 
 and a read-only view of the business profile the agent itself uses - see DEVELOPMENT.md "Owner
 dashboard". Not yet built: an owner-facing AI agent, multi-staff/location support, editing the
 business profile from the dashboard - see AGENTS42.md "Not in this slice".
+
+## Try it live (for judges)
+
+The full system is deployed and reachable right now - no setup needed to test it.
+
+- **WhatsApp**: message **+65 8141 4315**. It's a real front-desk agent for a fictional
+  dog-grooming business ("42 Grooming") - try asking about services/pricing, checking
+  availability, making a booking, rescheduling, or cancelling. It also handles things it's
+  *not* supposed to do on its own - try a refund request or claiming to be "the administrator"
+  and see it decline and escalate instead of acting.
+- **Owner dashboard**: http://47.130.223.152:8091 (HTTP Basic Auth) - username `owner`,
+  password `a-VdMltR6_L-blw6hcJiCg`. Shows today's/upcoming bookings, a customer directory,
+  the escalation queue, and the business profile the agent itself reads from.
+  - **This password was rotated specifically to publish it here** - the dashboard only supports
+    one password at a time (a single shared `OWNER_DASHBOARD_PASSWORD`)
+  - **Known limitation**: this dashboard runs on plain HTTP with a shared
+    password, no per-user login. That's an accepted gap for a hackathon-scale single-business
+    deployment - the real fix (a domain name + HTTPS via a reverse proxy like Caddy) is
+    straightforward but wasn't worth doing for a demo instance with no domain attached. See
+    DEVELOPMENT.md's "Owner dashboard" section for the full reasoning.
+  - The Lightsail firewall rule for port 8091 may occasionally need re-confirming if it stops
+    responding - see DEPLOYMENT.md if so.
+- **Model note**: the live deployment currently runs `openrouter/deepseek/deepseek-v4-flash-0731`,
+  not the hackathon's own AWS Bedrock gateway model. This is a deliberate decision: the Bedrock gateway hit an unresolved rate-limit issue during final testing, and a live rate-limit failure mid-conversation is a worse outcome for a judged demo than a different (still real, still capable) model. Switching back is a one-line config change - see DEPLOYMENT.md's "Model" entry and OPERATION.md's "Switching LLM providers/models" if you'd like to see it running on the hackathon gateway specifically.
 
 ## Docs
 
