@@ -128,7 +128,7 @@ uvicorn agents42.api:app --reload
 The access token auto-refreshes from the stored refresh token; re-run step 4 only if the refresh
 token itself is revoked.
 
-**A real way this happens, not just theoretical**: enabling or changing 2-Step Verification on
+**A real way this happens**: enabling or changing 2-Step Verification on
 the authorizing Google account silently revokes its existing OAuth grants, including this one -
 hit in production when 2-Step Verification was turned on for the same account used for Calendar,
 in order to generate a Gmail App Password for owner escalation emails (see "Owner escalation
@@ -162,10 +162,10 @@ booking count, last booking date - each linking to a detail page with full booki
 **Business** (read-only view of the same business profile - name, address, hours, services - the
 front-desk agent itself uses, so the owner can sanity-check "what does my AI currently believe
 about my business" without asking a developer), and **Activity** (recently cancelled/changed
-bookings and resolved-escalation history - supporting information, not what needs attention).
-Escalations get onto the Attention queue via `flag_attention.py` (see below). Not an LLM agent -
-see AGENTS42.md "Owner dashboard" for how this relates to the still-not-built Owner Assistant
-Agent role.
+bookings and resolved-escalation history - background context, separate from the Attention queue).
+Escalations get onto the Attention queue via `flag_attention.py` (see below). No model is
+involved anywhere in the dashboard - see AGENTS42.md "Owner dashboard" for how this relates to
+the Owner Assistant Agent role, which isn't built yet.
 
 Runs as its own service (`agents42.owner_api:app`), reusing the same built image as `app` (see
 `docker-compose.yml`) - it shares `api.py`'s models, session, Calendar client, and (notably) the
@@ -227,7 +227,7 @@ beyond the hackathon):
   certificate; a self-signed cert or restricting the Lightsail firewall rule's source IP (see
   DEPLOYMENT.md) are the cheap mitigations if this matters more later.
 - **"Recently cancelled / changed" is a heuristic** (`updated_at != created_at`, or status
-  `cancelled`), not a real reschedule-history record - there's no dedicated history table.
+  `cancelled`) - there's no dedicated reschedule-history table behind it.
 - Only supports one business per deployment (`OWNER_DASHBOARD_BUSINESS_ID` is a single fixed
   value), matching this project's existing "one business per deployment" scope generally.
 
@@ -310,14 +310,14 @@ failure (must not confirm a phantom booking), and double-booking under a rapid d
 - **Recheck-before-booking reduces stale-slot double booking, but isn't a full race guard.**
   `POST /bookings` always re-queries Calendar free/busy and re-runs `find_available_slots`
   immediately before creating the event (same function availability search uses, so a requested
-  start must exactly match a currently-valid slot - not just "not overlapping something") - never
-  trust a slot list from an earlier turn in the conversation, and the API doesn't either. What this
-  does *not* do: the check-then-create sequence isn't atomic, so two requests racing within the
-  same few hundred milliseconds could both pass the check before either writes - a genuine TOCTOU
-  window, not just a theoretical one, since FastAPI runs these sync endpoints in a thread pool.
+  start must exactly match a currently-valid slot, a stricter check than merely not overlapping
+  something) - never trust a slot list from an earlier turn in the conversation, and the API
+  doesn't either. The gap: the check-then-create sequence isn't atomic, so two requests racing
+  within the same few hundred milliseconds could both pass the check before either writes - a
+  genuine TOCTOU window, since FastAPI runs these sync endpoints in a thread pool.
   Not worth a Postgres advisory lock or per-slot mutex for a single-user hackathon demo; revisit
   before testing simultaneous customers.
-  Verified this does *not* cover the one case it looks like it might not: a single customer
+  Verified this **does** cover the one case it looks like it might not: a single customer
   booking two overlapping slots back-to-back in the same conversation (e.g. one appointment per
   pet, both requested before either is confirmed) - a real incident looked at first like this
   might be the cause. Reproduced directly: `search_availability` for a 2-hour service correctly
@@ -325,11 +325,11 @@ failure (must not confirm a phantom booking), and double-booking under a rapid d
   but booking 9am first and then immediately requesting 10am gets a clean `409 slot_unavailable`
   from the recheck, and the following availability search correctly excludes both - because these
   two script calls are sequential (the LLM calls `create_booking.py` once, waits for its
-  response, then calls it again), not concurrent, so the second call's fresh `get_busy_periods`
-  query does see the first call's just-created event. No "temp calendar slots"/hold mechanism
-  needed for this case - the existing recheck already handles it. The TOCTOU gap above is only
-  about genuinely concurrent requests (different customers, or duplicate client requests, racing
-  within the same window), which this is not.
+  response, then calls it again), so the second call's fresh `get_busy_periods` query does see
+  the first call's just-created event. No "temp calendar slots"/hold mechanism needed for this
+  case - the existing recheck already handles it. The TOCTOU gap above is a separate scenario:
+  genuinely concurrent requests (different customers, or duplicate client requests, racing
+  within the same window).
 - **Partial-failure handling**: if the Calendar event is created but the DB write then fails,
   `api.py:create_booking` deletes the Calendar event and returns 500 rather than leaving an
   orphaned event with no corresponding booking record. If the Calendar deletion itself then fails,
@@ -338,8 +338,8 @@ failure (must not confirm a phantom booking), and double-booking under a rapid d
   YAML profile); never pass naive datetimes into `scheduling/service.py`.
 - **Credentials**: `.gitignore` excludes `.env`, `credentials/`, and OpenClaw's session/state
   directories. Double-check `git status` before committing if you've been testing locally.
-- **Customer identity currently comes from message text, not a verified WhatsApp sender ID - this
-  is a real, open gap, not just a caution.** `resolve_customer.py --phone` takes whatever phone
+- **Customer identity currently comes from message text, never a verified WhatsApp sender ID.
+  This is a real, open gap.** `resolve_customer.py --phone` takes whatever phone
   number the LLM decides to pass, which in practice is whatever the customer typed or claimed in
   the conversation. Tested directly (`openclaw agent -t "+6598765432" -m "hello"` then asking the
   agent what phone number is visible "purely from your system/context information" returned "none
@@ -351,10 +351,10 @@ failure (must not confirm a phantom booking), and double-booking under a rapid d
   itself: `openclaw agent -t` may not fully replicate what a genuine inbound WhatsApp webhook
   message's channel metadata carries - worth re-verifying against the actual linked WhatsApp
   number before trusting this either way. `AGENTS.md` requires escalating rather than re-resolving
-  if a *different* number shows up mid-session (not just asking which one to use, which would
-  just cost an attacker one extra reply) - but that does nothing for a first message that simply
-  claims someone else's number from the very start, since there's no prior resolved identity yet
-  to notice a mismatch against.
+  if a *different* number shows up mid-session - asking the customer which one to use would only
+  cost an attacker one extra reply. That does nothing for a first message that simply claims
+  someone else's number from the very start, since there's no prior resolved identity yet to
+  notice a mismatch against.
   What a real fix looks like, more concretely than "needs a plugin": OpenClaw's SDK docs confirm
   `ctx.requesterSenderId` is host-trusted and available at the plugin/hook layer, and channel docs
   confirm inbound WhatsApp carries sender/phone metadata - but that metadata isn't exposed

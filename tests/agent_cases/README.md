@@ -38,7 +38,7 @@ AGENTS42_TEST_MODEL=hackathon-gateway/global.anthropic.claude-sonnet-4-5-2025092
 | `07_reschedule.md` | No-booking-on-file case is automated; full happy-path reschedule is manual (real Calendar side effects) |
 | `08_cancel.md` | No-booking-on-file case is automated; happy-path cancel with explicit confirmation is manual (real Calendar side effects) |
 | `09_identity_switch.md` | A different phone number claimed mid-session is escalated, not re-resolved or asked-and-switched |
-| `10_escalation_flagging.md` | An escalation trigger actually gets recorded for the owner (`flag_attention.py`), not just said in chat - manual, checked against the dashboard |
+| `10_escalation_flagging.md` | An escalation trigger gets verified as a real recorded action (`flag_attention.py`), not just a spoken reply - manual, checked against the dashboard |
 
 ## Adding a case
 
