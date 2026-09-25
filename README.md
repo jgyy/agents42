@@ -18,18 +18,16 @@ The full system is deployed and reachable right now - no setup needed to test it
   the escalation queue, and the business profile the agent itself reads from.
   - **This password was rotated specifically to publish it here** - the dashboard only supports
     one password at a time (a single shared `OWNER_DASHBOARD_PASSWORD`)
-  - **Known limitation, not an oversight**: this dashboard runs on plain HTTP with a shared
-    password, no per-user login. That's an accepted gap for a hackathon-scale single-business
-    deployment - the real fix (a domain name + HTTPS via a reverse proxy like Caddy) is
-    straightforward but wasn't worth doing for a demo instance with no domain attached. See
-    DEVELOPMENT.md's "Owner dashboard" section for the full reasoning.
+  - **Known limitation**: this dashboard runs on plain HTTP with a shared
+    password, no per-user login. We accept this as as gap for a hackathon-scale single-business
+    deployment. And a real deployment (a domain name + HTTPS via a reverse proxy like Caddy) is
+    straightforward but currently we have no domain attached. See DEVELOPMENT.md's "Owner dashboard" section for the full reasoning.
   - The Lightsail firewall rule for port 8091 may occasionally need re-confirming if it stops
     responding - see DEPLOYMENT.md if so.
 - **Model note**: the live deployment currently runs `openrouter/deepseek/deepseek-v4-flash-0731`
   instead of the hackathon's own AWS Bedrock gateway model. This is deliberate: the Bedrock
   gateway hit an unresolved rate-limit issue during final testing, and a live rate-limit failure
-  mid-conversation is a worse outcome for a judged demo than a different (still real, still
-  capable) model. Switching back is a one-line config change - see
+  mid-conversation is a more negative outcome for a demo than a different model. Switching back is a one-line config change - see
   DEPLOYMENT.md's "Model" entry and OPERATION.md's "Switching LLM providers/models" if you'd like
   to see it running on the hackathon gateway specifically.
 
