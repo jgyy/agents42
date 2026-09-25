@@ -2,8 +2,7 @@
 
 An AI front-desk agent for appointment-based SMEs, built for the **NUS-ISS Show Me Your Agents
 Hackathon 2026**. Customers message the business on WhatsApp; the agent identifies them, checks
-real availability on the business's Google Calendar, and books the appointment - without
-inventing prices, hours, or availability itself.
+real availability on the business's Google Calendar, and books the appointment.
 
 
 ## First vertical slice
@@ -25,7 +24,7 @@ architecture and guardrails, and [DEVELOPMENT.md](DEVELOPMENT.md) for how to run
 - `app/src/agents42/` - the deterministic backend (FastAPI + PostgreSQL): customer lookup,
   business-rule-driven scheduling, and Google Calendar integration. No LLM involvement.
 - `businesses/*.yaml` - one file per business (services, hours, timezone, calendar). Adding a
-  new business is "add a YAML file", not "edit the core".
+  new business process will be "add a YAML file".
 - `openclaw/workspace/skills/front-desk/` - the OpenClaw skill: `SKILL.md` (generic agent rules,
   business-agnostic) plus thin CLI scripts that call the FastAPI backend and print JSON, matching
   how OpenClaw actually invokes skills (`exec` a script, parse its JSON output).
@@ -120,7 +119,7 @@ The full system is deployed and reachable right now - no setup needed to test it
   the escalation queue, and the business profile the agent itself reads from.
   - **This password was rotated specifically to publish it here** - the dashboard only supports
     one password at a time (a single shared `OWNER_DASHBOARD_PASSWORD`)
-  - **Known limitation, not an oversight**: this dashboard runs on plain HTTP with a shared
+  - **Known limitation**: this dashboard runs on plain HTTP with a shared
     password, no per-user login. That's an accepted gap for a hackathon-scale single-business
     deployment - the real fix (a domain name + HTTPS via a reverse proxy like Caddy) is
     straightforward but wasn't worth doing for a demo instance with no domain attached. See
@@ -128,12 +127,7 @@ The full system is deployed and reachable right now - no setup needed to test it
   - The Lightsail firewall rule for port 8091 may occasionally need re-confirming if it stops
     responding - see DEPLOYMENT.md if so.
 - **Model note**: the live deployment currently runs `openrouter/deepseek/deepseek-v4-flash-0731`,
-  not the hackathon's own AWS Bedrock gateway model. This is a deliberate decision, not an
-  oversight: the Bedrock gateway hit an unresolved rate-limit issue during final testing, and a
-  live rate-limit failure mid-conversation is a worse outcome for a judged demo than a different
-  (still real, still capable) model. Switching back is a one-line config change - see
-  DEPLOYMENT.md's "Model" entry and OPERATION.md's "Switching LLM providers/models" if you'd like
-  to see it running on the hackathon gateway specifically.
+  not the hackathon's own AWS Bedrock gateway model. This is a deliberate decision: the Bedrock gateway hit an unresolved rate-limit issue during final testing, and a live rate-limit failure mid-conversation is a worse outcome for a judged demo than a different (still real, still capable) model. Switching back is a one-line config change - see DEPLOYMENT.md's "Model" entry and OPERATION.md's "Switching LLM providers/models" if you'd like to see it running on the hackathon gateway specifically.
 
 ## Docs
 
