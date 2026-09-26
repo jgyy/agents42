@@ -192,21 +192,14 @@ walk through it) - add your own number and any teammates' numbers who need to te
 
 ## Resetting test data
 
-There's no cancellation/delete endpoint yet (this slice deliberately doesn't build it - see
-AGENTS42.md "Not in this slice"), so cleaning up one test booking is two manual steps:
-
-**1. Delete the Calendar event** - find it on the calendar (or via `google_event_id` in the
-booking response / `GET /bookings/<id>`) and delete it from Google Calendar directly.
-
-**2. Mark the DB row cancelled**, so it stops being treated as a real booking (e.g. by future
-availability checks against the DB, if that's ever added) - connect to Postgres directly:
-```bash
-docker compose exec postgres psql -U agents42 -d agents42 \
-  -c "UPDATE bookings SET status = 'cancelled' WHERE id = '<booking-id>';"
-```
-Leaving a stray test row with `status = 'confirmed'` isn't harmful today (only Google Calendar's
-own free/busy is checked for availability, not this table), but keeping it tidy avoids confusion
-if you're eyeballing the database.
+Use the real cancel endpoint - `cancel_booking.py --business <business_id> --booking_id <id>
+--customer_id <id>` (or `POST /bookings/<id>/cancel` directly), same as a customer cancelling for
+real. It deletes the Calendar event first, then marks the DB row cancelled, and fails closed
+(502) rather than reporting success if the Calendar delete fails - see AGENTS42.md's tool
+contract table for the exact behavior. This used to require two manual steps (deleting the
+Calendar event by hand, then updating the DB row directly) before cancellation was built; that's
+no longer necessary and the manual DB update in particular should be avoided now, since it skips
+the Calendar deletion entirely and leaves a stale Calendar hold on the slot.
 
 **Wipe everything and start clean:**
 ```bash
